@@ -64,3 +64,21 @@ than `HasData` because EF Core cannot seed entities with complex properties
 Two seeded assets are deliberately left unassigned: the prototype's mock data
 referenced projects that never existed as records, and inventing them to satisfy a
 string match is exactly the bug the foreign key removes.
+
+## Tests
+
+```bash
+dotnet test ConstructErp.slnx
+```
+
+Tests run against a **real SQL Server**, not the in-memory provider. What they
+protect is provider-specific — `decimal(18,3)` keeping three places, `NVARCHAR`
+holding Arabic, foreign keys actually constraining — and the in-memory provider
+verifies none of it. It would happily pass a schema SQL Server would reject.
+
+Each run creates a uniquely named database and drops it afterwards, so a failed
+run leaves nothing behind.
+
+Locally the tests use Windows auth against `localhost`. CI has no Windows auth,
+so the workflow points them at a SQL Server service container through the
+`ConstructErp_TestSqlServer` environment variable.

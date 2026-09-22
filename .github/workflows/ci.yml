@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    # The tests run against a REAL SQL Server, not the in-memory provider,
+    # because what they protect is provider-specific: decimal(18,3) keeping
+    # three places, NVARCHAR holding Arabic, foreign keys actually
+    # constraining. The in-memory provider verifies none of that.
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Str0ng!Passw0rd"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Str0ng!Passw0rd' -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore ConstructErp.slnx
+
+      - name: Build
+        run: dotnet build ConstructErp.slnx --no-restore --configuration Release
+
+      - name: Test
+        # Windows auth does not exist on the Linux runner, so the tests are
+        # pointed at the service container with SQL auth. ApiFactory reads this
+        # and falls back to the local Windows-auth instance when it is unset.
+        env:
+          ConstructErp_TestSqlServer: "Server=localhost,1433;User Id=sa;Password=Str0ng!Passw0rd;TrustServerCertificate=True"
+        run: dotnet test ConstructErp.slnx --no-build --configuration Release --verbosity normal
