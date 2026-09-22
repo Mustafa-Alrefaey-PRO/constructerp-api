@@ -69,6 +69,46 @@ public sealed class SchemaTests(ApiFactory factory)
     }
 
     [Fact]
+    public async Task Rentals_have_no_status_column_to_go_stale()
+    {
+        await factory.WithDbAsync(async db =>
+        {
+            var columns = await db.Database
+                .SqlQuery<string>($@"
+                    SELECT COLUMN_NAME AS Value FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = 'Rentals'")
+                .ToListAsync();
+
+            // A rental's status is derived from its dates by RentalSchedule. If
+            // a column ever appears here, someone has reintroduced the bug: a
+            // status that only changes when a person remembers to change it.
+            Assert.DoesNotContain("Status", columns);
+
+            // The dates it is derived FROM must all be present.
+            Assert.Contains("ExpectedReturnOn", columns);
+            Assert.Contains("ReturnBookedOn", columns);
+            Assert.Contains("ReturnedOn", columns);
+        });
+    }
+
+    [Fact]
+    public async Task Rentals_reference_their_vendor_by_foreign_key()
+    {
+        await factory.WithDbAsync(async db =>
+        {
+            var keys = await db.Database
+                .SqlQuery<string>($@"
+                    SELECT name AS Value FROM sys.foreign_keys
+                    WHERE parent_object_id = OBJECT_ID('Rentals')
+                      AND referenced_object_id = OBJECT_ID('Vendors')")
+                .ToListAsync();
+
+            // "Delta Heavy Rentals" was a string typed onto each rental row.
+            Assert.Single(keys);
+        });
+    }
+
+    [Fact]
     public async Task Money_survives_a_three_decimal_round_trip()
     {
         await factory.WithDbAsync(async db =>

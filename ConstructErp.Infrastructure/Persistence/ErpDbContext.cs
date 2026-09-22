@@ -1,6 +1,7 @@
 using ConstructErp.Domain.Common;
 using ConstructErp.Domain.Equipment;
 using ConstructErp.Domain.Projects;
+using ConstructErp.Domain.Rentals;
 using ConstructErp.Domain.Requests;
 using Microsoft.EntityFrameworkCore;
 
@@ -32,6 +33,10 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
 
     public DbSet<RequestCheck> RequestChecks => Set<RequestCheck>();
 
+    public DbSet<Vendor> Vendors => Set<Vendor>();
+
+    public DbSet<Rental> Rentals => Set<Rental>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder builder)
     {
         // Every string column is NVARCHAR. Under SQL Server's default
@@ -47,6 +52,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
         ConfigureProjects(builder);
         ConfigureEquipment(builder);
         ConfigureRequests(builder);
+        ConfigureRentals(builder);
         ConfigureAuditing(builder);
 
         // No HasData here: EF Core cannot seed entities that use complex
@@ -176,6 +182,54 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
             check.Property(c => c.Code).HasMaxLength(64);
             check.ComplexProperty(c => c.Label).IsRequired();
             check.HasIndex(c => new { c.RequestId, c.Kind, c.Sequence });
+        });
+    }
+
+    private static void ConfigureRentals(ModelBuilder builder)
+    {
+        builder.Entity<Vendor>(vendor =>
+        {
+            vendor.HasIndex(v => v.Code).IsUnique();
+            vendor.Property(v => v.Code).HasMaxLength(32);
+            vendor.Property(v => v.ContactName).HasMaxLength(128);
+            vendor.Property(v => v.Phone).HasMaxLength(32);
+            vendor.Property(v => v.Email).HasMaxLength(256);
+
+            vendor.ComplexProperty(v => v.Name).IsRequired();
+        });
+
+        builder.Entity<Rental>(rental =>
+        {
+            rental.HasIndex(r => r.Code).IsUnique();
+            rental.Property(r => r.Code).HasMaxLength(32);
+
+            rental.ComplexProperty(r => r.Notes).IsRequired();
+
+            // No Status column. A rental's status is derived from its dates by
+            // RentalSchedule, so there is nothing here to fall out of date.
+
+            // Restrict: a vendor with hire history cannot be deleted out from
+            // under the spend that is attributed to it.
+            rental.HasOne(r => r.Vendor)
+                .WithMany(v => v.Rentals)
+                .HasForeignKey(r => r.VendorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            rental.HasOne(r => r.Equipment)
+                .WithMany()
+                .HasForeignKey(r => r.EquipmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            rental.HasOne(r => r.Project)
+                .WithMany()
+                .HasForeignKey(r => r.ProjectId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // The index behind "what is overdue" and "what is due this week":
+            // both filter on still-on-hire rows ordered by due date.
+            rental.HasIndex(r => new { r.ReturnedOn, r.ExpectedReturnOn });
+            rental.HasIndex(r => r.VendorId);
+            rental.HasIndex(r => r.ProjectId);
         });
     }
 

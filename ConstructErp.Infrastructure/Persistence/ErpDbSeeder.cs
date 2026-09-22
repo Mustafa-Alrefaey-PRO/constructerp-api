@@ -1,6 +1,7 @@
 using ConstructErp.Domain.Common;
 using ConstructErp.Domain.Equipment;
 using ConstructErp.Domain.Projects;
+using ConstructErp.Domain.Rentals;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -26,6 +27,122 @@ public sealed class ErpDbSeeder(ErpDbContext db, ILogger<ErpDbSeeder> logger)
         var projects = await SeedProjectsAsync(cancellationToken);
         await SeedEquipmentAsync(types, projects, cancellationToken);
         await SeedCostEntriesAsync(projects, cancellationToken);
+
+        var vendors = await SeedVendorsAsync(cancellationToken);
+        await SeedRentalsAsync(vendors, projects, cancellationToken);
+    }
+
+    private async Task<Dictionary<string, Vendor>> SeedVendorsAsync(
+        CancellationToken cancellationToken)
+    {
+        var existing = await db.Vendors.ToDictionaryAsync(v => v.Code, cancellationToken);
+
+        // The three names the prototype carried as bare strings on rental rows.
+        var wanted = new[]
+        {
+            new Vendor
+            {
+                Code = "VEN-001",
+                Name = new LocalizedText("Delta Heavy Rentals", "دلتا لتأجير المعدات الثقيلة"),
+                ContactName = "K. Mansour",
+                Phone = "+965 2222 1180",
+                Email = "hire@deltaheavy.com.kw",
+            },
+            new Vendor
+            {
+                Code = "VEN-002",
+                Name = new LocalizedText("Prime Lift Services", "برايم لخدمات الرفع"),
+                ContactName = "R. Aziz",
+                Phone = "+965 2222 4471",
+                Email = "bookings@primelift.com.kw",
+            },
+            new Vendor
+            {
+                Code = "VEN-003",
+                Name = new LocalizedText("SitePower Rental", "سايت باور للتأجير"),
+                ContactName = "H. Darwish",
+                Phone = "+965 2222 9034",
+                Email = "support@sitepower.com.kw",
+            },
+        };
+
+        foreach (var vendor in wanted)
+        {
+            if (existing.ContainsKey(vendor.Code))
+            {
+                continue;
+            }
+
+            db.Vendors.Add(vendor);
+            existing[vendor.Code] = vendor;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return existing;
+    }
+
+    /// <summary>
+    /// Demo hires, dated relative to today.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately relative. The prototype's rentals carried fixed dates
+    /// ("Jul 24") beside a hand-typed status, so within weeks every row read
+    /// "Active" next to a return date months in the past — the exact
+    /// contradiction RentalSchedule removes. Anchoring to today keeps one
+    /// rental of each kind on screen no matter when the demo is opened, and the
+    /// statuses shown are genuinely derived rather than arranged.
+    /// </remarks>
+    private async Task SeedRentalsAsync(
+        Dictionary<string, Vendor> vendors,
+        Dictionary<string, Project> projects,
+        CancellationToken cancellationToken)
+    {
+        if (await db.Rentals.AnyAsync(cancellationToken))
+        {
+            return;
+        }
+
+        var equipment = await db.Equipment.ToDictionaryAsync(e => e.Code, cancellationToken);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(3).Date);
+
+        var wanted = new (string Code, string Vendor, string Equipment, string? Project,
+            int StartOffset, int DueOffset, int? BookedOffset, decimal Amount)[]
+        {
+            // Return booked, still in the future -> Return Scheduled.
+            ("RNT-2007", "VEN-001", "EQ-219", "PRJ-1018", -34, 12, -2, 9800m),
+            // Running, nothing booked yet -> Active.
+            ("RNT-2011", "VEN-002", "EQ-577", "PRJ-1001", -21, 26, null, 14600m),
+            // Due date has passed and it is still out -> Overdue, derived.
+            ("RNT-2014", "VEN-003", "EQ-448", "PRJ-1032", -48, -7, null, 1920m),
+        };
+
+        foreach (var (code, vendorCode, equipmentCode, projectCode,
+                     startOffset, dueOffset, bookedOffset, amount) in wanted)
+        {
+            if (!vendors.TryGetValue(vendorCode, out var vendor)
+                || !equipment.TryGetValue(equipmentCode, out var asset))
+            {
+                continue;
+            }
+
+            db.Rentals.Add(new Rental
+            {
+                Code = code,
+                VendorId = vendor.Id,
+                EquipmentId = asset.Id,
+                ProjectId = projectCode is not null && projects.TryGetValue(projectCode, out var p)
+                    ? p.Id
+                    : null,
+                StartedOn = today.AddDays(startOffset),
+                ExpectedReturnOn = today.AddDays(dueOffset),
+                ReturnBookedOn = bookedOffset is { } booked ? today.AddDays(booked) : null,
+                Amount = amount,
+                Notes = new LocalizedText(),
+            });
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Seeded {Count} rentals.", wanted.Length);
     }
 
     /// <summary>
@@ -173,11 +290,12 @@ public sealed class ErpDbSeeder(ErpDbContext db, ILogger<ErpDbSeeder> logger)
         Dictionary<string, Project> projects,
         CancellationToken cancellationToken)
     {
-        if (await db.Equipment.AnyAsync(cancellationToken))
-        {
-            logger.LogInformation("Equipment already seeded; skipping.");
-            return;
-        }
+        // Checked per code rather than "any equipment exists". The all-or-nothing
+        // version meant an asset added to this list later never reached a
+        // database that had already been seeded once.
+        var existing = await db.Equipment
+            .Select(asset => asset.Code)
+            .ToListAsync(cancellationToken);
 
         // Project is matched by CODE here, not by name — the whole point of the
         // foreign key. "Ring Road Package B" and "Harbor Yard" have no project
@@ -200,12 +318,26 @@ public sealed class ErpDbSeeder(ErpDbContext db, ILogger<ErpDbSeeder> logger)
             Asset("EQ-512", "Excavator 36T", "حفار 36 طن", "EART", Ownership.Owned,
                 null, EquipmentStatus.InspectionDue, 57, 690m,
                 "Operator checklist missing", "قائمة فحص المشغل غير مكتملة"),
+            // Hired from Prime Lift. The prototype had a rental for this crane
+            // but no fleet record, so the hire referred to a machine that did
+            // not exist — a foreign key makes that impossible to repeat.
+            Asset("EQ-577", "Mobile Crane 120T", "ونش متحرك 120 طن", "LIFT",
+                Ownership.ExternalRental, "PRJ-1001", EquipmentStatus.Working, 81, 1480m,
+                "Hire runs to month end", "الإيجار حتى نهاية الشهر"),
         };
 
-        db.Equipment.AddRange(assets);
+        var added = assets.Where(asset => !existing.Contains(asset.Code)).ToArray();
+
+        if (added.Length == 0)
+        {
+            logger.LogInformation("Equipment already seeded; skipping.");
+            return;
+        }
+
+        db.Equipment.AddRange(added);
         await db.SaveChangesAsync(cancellationToken);
 
-        logger.LogInformation("Seeded {Count} equipment assets.", assets.Length);
+        logger.LogInformation("Seeded {Count} equipment assets.", added.Length);
 
         EquipmentAsset Asset(
             string code, string nameEn, string nameAr, string typeCode, Ownership ownership,

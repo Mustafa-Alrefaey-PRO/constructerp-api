@@ -1,5 +1,6 @@
 using ConstructErp.Domain.Equipment;
 using ConstructErp.Domain.Projects;
+using ConstructErp.Domain.Rentals;
 using ConstructErp.Domain.Requests;
 
 namespace ConstructErp.Application.Common;
@@ -88,6 +89,20 @@ public static class EnumLabels
         RequestStage.Approval => "Approval",
         RequestStage.Receiving => "Receiving",
         RequestStage.Inspection => "Inspection",
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),
+    };
+
+    /// <remarks>
+    /// Read-only by design: there is no ToRentalStatus. A rental's status is
+    /// derived from its dates, so accepting one over the wire would hand back
+    /// the very bug RentalSchedule exists to remove.
+    /// </remarks>
+    public static string ToLabel(this RentalStatus value) => value switch
+    {
+        RentalStatus.Active => "Active",
+        RentalStatus.ReturnScheduled => "Return Scheduled",
+        RentalStatus.Overdue => "Overdue",
+        RentalStatus.Returned => "Returned",
         _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),
     };
 

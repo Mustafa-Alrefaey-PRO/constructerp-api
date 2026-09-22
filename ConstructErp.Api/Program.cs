@@ -7,6 +7,11 @@ builder.Services.AddOpenApi();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddProblemDetails();
 
+// Registered rather than calling DateTime.Now anywhere: date-derived fields
+// like a rental's overdue status are only testable if the clock can be
+// substituted, and only consistent if every caller reads the same one.
+builder.Services.AddSingleton(TimeProvider.System);
+
 // The Angular dev server is a different origin, so it needs an explicit grant.
 // Origins come from configuration rather than a wildcard: AllowAnyOrigin cannot
 // be combined with credentials, and we will need cookies once auth lands.
@@ -44,6 +49,8 @@ app.MapProjectEndpoints();
 app.MapEquipmentEndpoints();
 app.MapRequestEndpoints();
 app.MapCostEndpoints();
+app.MapVendorEndpoints();
+app.MapRentalEndpoints();
 
 app.Run();
 
