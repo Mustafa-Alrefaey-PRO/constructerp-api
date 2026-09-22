@@ -1,0 +1,6 @@
+@ConstructErp.Api_HostAddress = http://localhost:5084
+
+GET {{ConstructErp.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

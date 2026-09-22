@@ -1,0 +1,25 @@
+## Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.user
+*.suo
+
+## Rider / VS
+.vs/
+.idea/
+*.DotSettings.user
+
+## Test results
+[Tt]est[Rr]esult*/
+coverage*.json
+coverage*.xml
+*.coverage
+
+## Local secrets — appsettings.Development.json is committed because it holds
+## only a local Windows-auth connection string. Anything with a real secret
+## belongs in user-secrets or the environment, never here.
+appsettings.*.local.json
+*.env

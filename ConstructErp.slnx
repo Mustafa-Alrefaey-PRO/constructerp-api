@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="ConstructErp.Api/ConstructErp.Api.csproj" />
+  <Project Path="ConstructErp.Application/ConstructErp.Application.csproj" />
+  <Project Path="ConstructErp.Domain/ConstructErp.Domain.csproj" />
+  <Project Path="ConstructErp.Infrastructure/ConstructErp.Infrastructure.csproj" />
+</Solution>
