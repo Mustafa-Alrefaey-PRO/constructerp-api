@@ -1,3 +1,4 @@
+using ConstructErp.Api.Endpoints;
 using ConstructErp.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -38,6 +39,9 @@ app.UseCors(DevCorsPolicy);
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }))
     .WithName("Health");
+
+app.MapProjectEndpoints();
+app.MapEquipmentEndpoints();
 
 app.Run();
 
