@@ -5,6 +5,7 @@ using ConstructErp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -12,9 +13,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ConstructErp.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(ErpDbContext))]
-    partial class ErpDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260922095122_AddEquipmentRequests")]
+    partial class AddEquipmentRequests
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

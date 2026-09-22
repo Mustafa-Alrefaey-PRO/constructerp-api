@@ -1,5 +1,6 @@
 using ConstructErp.Domain.Equipment;
 using ConstructErp.Domain.Projects;
+using ConstructErp.Domain.Requests;
 
 namespace ConstructErp.Application.Common;
 
@@ -67,6 +68,27 @@ public static class EnumLabels
         "At Risk" => ProjectStatus.AtRisk,
         "Closing" => ProjectStatus.Closing,
         _ => throw new ArgumentOutOfRangeException(nameof(label), label, "Unknown project status."),
+    };
+
+    public static string ToLabel(this RequestStatus value) => value switch
+    {
+        RequestStatus.Draft => "Draft",
+        RequestStatus.Submitted => "Submitted",
+        RequestStatus.Approved => "Approved",
+        RequestStatus.Received => "Received",
+        RequestStatus.InspectionPending => "Inspection Pending",
+        RequestStatus.ReadyToUse => "Ready to Use",
+        RequestStatus.Rejected => "Rejected",
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),
+    };
+
+    public static string ToLabel(this RequestStage value) => value switch
+    {
+        RequestStage.Request => "Request",
+        RequestStage.Approval => "Approval",
+        RequestStage.Receiving => "Receiving",
+        RequestStage.Inspection => "Inspection",
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),
     };
 
     public static string ToLabel(this CostCategory value) => value switch

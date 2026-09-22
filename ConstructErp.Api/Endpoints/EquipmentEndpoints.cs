@@ -1,6 +1,7 @@
 using ConstructErp.Application.Common;
 using ConstructErp.Application.Equipment;
 using ConstructErp.Domain.Equipment;
+using ConstructErp.Domain.Requests;
 using ConstructErp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -79,11 +80,30 @@ public static class EquipmentEndpoints
             return Results.Conflict(new { error = $"Equipment code '{request.Code}' already exists." });
         }
 
+        var wasWorking = asset.Status == EquipmentStatus.Working;
         var result = await TryApplyAsync(request, asset, db, ct);
 
         if (result is not null)
         {
             return result;
+        }
+
+        // THE rule this product exists to enforce: an asset may not be put to
+        // work until a request for it has been approved, received and has
+        // passed pre-use inspection. Checked only on the TRANSITION into
+        // Working, so existing records are still editable.
+        if (!wasWorking && asset.Status == EquipmentStatus.Working)
+        {
+            var requests = await db.Requests
+                .Where(r => r.EquipmentId == id)
+                .ToListAsync(ct);
+
+            var guard = RequestWorkflow.CanPutToWork(requests);
+
+            if (!guard.Allowed)
+            {
+                return Results.Conflict(new { error = guard.Reason });
+            }
         }
 
         await db.SaveChangesAsync(ct);

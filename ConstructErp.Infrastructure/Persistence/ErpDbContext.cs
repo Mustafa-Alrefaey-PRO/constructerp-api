@@ -1,6 +1,7 @@
 using ConstructErp.Domain.Common;
 using ConstructErp.Domain.Equipment;
 using ConstructErp.Domain.Projects;
+using ConstructErp.Domain.Requests;
 using Microsoft.EntityFrameworkCore;
 
 namespace ConstructErp.Infrastructure.Persistence;
@@ -27,6 +28,10 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
 
     public DbSet<EquipmentType> EquipmentTypes => Set<EquipmentType>();
 
+    public DbSet<EquipmentRequest> Requests => Set<EquipmentRequest>();
+
+    public DbSet<RequestCheck> RequestChecks => Set<RequestCheck>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder builder)
     {
         // Every string column is NVARCHAR. Under SQL Server's default
@@ -41,6 +46,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
     {
         ConfigureProjects(builder);
         ConfigureEquipment(builder);
+        ConfigureRequests(builder);
         ConfigureAuditing(builder);
 
         // No HasData here: EF Core cannot seed entities that use complex
@@ -115,6 +121,61 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
 
             asset.HasIndex(a => a.Status);
             asset.HasIndex(a => a.ProjectId);
+        });
+    }
+
+    private static void ConfigureRequests(ModelBuilder builder)
+    {
+        builder.Entity<EquipmentRequest>(request =>
+        {
+            request.HasIndex(r => r.Code).IsUnique();
+            request.Property(r => r.Code).HasMaxLength(32);
+            request.Property(r => r.RequestedBy).HasMaxLength(128);
+            request.Property(r => r.Status).HasConversion<int>();
+            request.Property(r => r.Ownership).HasConversion<int>();
+
+            // Stage is derived from Status, so it is not a column. Persisting
+            // both is what let the prototype hold contradictory values.
+            request.Ignore(r => r.Stage);
+
+            request.ComplexProperty(r => r.Location).IsRequired();
+            request.ComplexProperty(r => r.Purpose).IsRequired();
+
+            // Optional, so it cannot be a complex property — those are always
+            // present. Two plain nullable columns instead.
+            request.OwnsOne(r => r.RejectionReason, reason =>
+            {
+                reason.Property(text => text.En).HasColumnName("RejectionReason_En");
+                reason.Property(text => text.Ar).HasColumnName("RejectionReason_Ar");
+            });
+
+            // Restrict: an asset with request history cannot be quietly
+            // removed from under it.
+            request.HasOne(r => r.Equipment)
+                .WithMany()
+                .HasForeignKey(r => r.EquipmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            request.HasOne(r => r.Project)
+                .WithMany()
+                .HasForeignKey(r => r.ProjectId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            request.HasMany(r => r.Checks)
+                .WithOne(c => c.Request!)
+                .HasForeignKey(c => c.RequestId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            request.HasIndex(r => r.Status);
+            request.HasIndex(r => r.EquipmentId);
+        });
+
+        builder.Entity<RequestCheck>(check =>
+        {
+            check.Property(c => c.Kind).HasConversion<int>();
+            check.Property(c => c.Code).HasMaxLength(64);
+            check.ComplexProperty(c => c.Label).IsRequired();
+            check.HasIndex(c => new { c.RequestId, c.Kind, c.Sequence });
         });
     }
 
