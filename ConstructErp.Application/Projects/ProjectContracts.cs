@@ -32,3 +32,19 @@ public sealed record SaveProjectRequest(
     int Progress,
     DateOnly? StartDate,
     DateOnly? EndDate);
+
+public sealed record CostEntryDto(
+    Guid Id,
+    Guid ProjectId,
+    string ProjectCode,
+    string Category,
+    decimal Amount,
+    DateOnly IncurredOn,
+    LocalizedTextDto Description);
+
+public sealed record SaveCostEntryRequest(
+    Guid ProjectId,
+    string Category,
+    decimal Amount,
+    DateOnly IncurredOn,
+    LocalizedTextDto? Description);

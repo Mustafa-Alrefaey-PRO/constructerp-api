@@ -91,6 +91,14 @@ public static class EnumLabels
         _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),
     };
 
+    public static CostCategory ToCostCategory(string label) => label switch
+    {
+        "Equipment" => CostCategory.Equipment,
+        "Transport" => CostCategory.Transport,
+        "Extras" => CostCategory.Extras,
+        _ => throw new ArgumentOutOfRangeException(nameof(label), label, "Unknown cost category."),
+    };
+
     public static string ToLabel(this CostCategory value) => value switch
     {
         CostCategory.Equipment => "Equipment",

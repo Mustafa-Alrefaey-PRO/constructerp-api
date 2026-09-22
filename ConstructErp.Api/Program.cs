@@ -43,6 +43,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }))
 app.MapProjectEndpoints();
 app.MapEquipmentEndpoints();
 app.MapRequestEndpoints();
+app.MapCostEndpoints();
 
 app.Run();
 

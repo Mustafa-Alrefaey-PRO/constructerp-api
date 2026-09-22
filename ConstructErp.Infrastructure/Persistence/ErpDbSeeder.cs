@@ -25,6 +25,60 @@ public sealed class ErpDbSeeder(ErpDbContext db, ILogger<ErpDbSeeder> logger)
         var types = await SeedEquipmentTypesAsync(cancellationToken);
         var projects = await SeedProjectsAsync(cancellationToken);
         await SeedEquipmentAsync(types, projects, cancellationToken);
+        await SeedCostEntriesAsync(projects, cancellationToken);
+    }
+
+    /// <summary>
+    /// Demo spend, so the cost screens show something real.
+    /// </summary>
+    /// <remarks>
+    /// The prototype displayed these totals as numbers typed onto the project.
+    /// They are now cost ENTRIES, and the project's totals are summed from
+    /// them — so the figures on screen are the same, but they can no longer
+    /// disagree with the records behind them.
+    /// </remarks>
+    private async Task SeedCostEntriesAsync(
+        Dictionary<string, Project> projects, CancellationToken cancellationToken)
+    {
+        if (await db.CostEntries.AnyAsync(cancellationToken))
+        {
+            return;
+        }
+
+        var wanted = new (string ProjectCode, CostCategory Category, decimal Amount, string En, string Ar)[]
+        {
+            ("PRJ-1001", CostCategory.Equipment, 184000m, "Crane and plant hire", "إيجار الأوناش والمعدات"),
+            ("PRJ-1001", CostCategory.Transport, 24500m, "Site deliveries", "توصيلات الموقع"),
+            ("PRJ-1001", CostCategory.Extras, 11200m, "Operator overtime", "ساعات إضافية للمشغلين"),
+            ("PRJ-1018", CostCategory.Equipment, 139000m, "Concrete pumping", "ضخ الخرسانة"),
+            ("PRJ-1018", CostCategory.Transport, 31800m, "Lowbed movements", "حركات المقطورات"),
+            ("PRJ-1018", CostCategory.Extras, 8400m, "Permits and escorts", "التصاريح والمرافقة"),
+            ("PRJ-1032", CostCategory.Equipment, 98000m, "Lighting and site support", "الإضاءة ودعم الموقع"),
+            ("PRJ-1032", CostCategory.Transport, 14900m, "Return haulage", "نقل الرجوع"),
+            ("PRJ-1032", CostCategory.Extras, 6200m, "Standby charges", "رسوم الانتظار"),
+        };
+
+        var incurred = new DateOnly(2026, 7, 1);
+
+        foreach (var (code, category, amount, en, ar) in wanted)
+        {
+            if (!projects.TryGetValue(code, out var project))
+            {
+                continue;
+            }
+
+            db.CostEntries.Add(new CostEntry
+            {
+                ProjectId = project.Id,
+                Category = category,
+                Amount = amount,
+                IncurredOn = incurred,
+                Description = new LocalizedText(en, ar),
+            });
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Seeded {Count} cost entries.", wanted.Length);
     }
 
     private async Task<Dictionary<string, EquipmentType>> SeedEquipmentTypesAsync(
