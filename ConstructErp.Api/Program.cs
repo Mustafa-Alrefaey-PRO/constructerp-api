@@ -51,6 +51,7 @@ app.MapRequestEndpoints();
 app.MapCostEndpoints();
 app.MapVendorEndpoints();
 app.MapRentalEndpoints();
+app.MapTransportEndpoints();
 
 app.Run();
 

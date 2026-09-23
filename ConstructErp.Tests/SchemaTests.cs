@@ -92,6 +92,32 @@ public sealed class SchemaTests(ApiFactory factory)
     }
 
     [Fact]
+    public async Task Transport_moves_have_no_status_column_either()
+    {
+        await factory.WithDbAsync(async db =>
+        {
+            var columns = await db.Database
+                .SqlQuery<string>($@"
+                    SELECT COLUMN_NAME AS Value FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_NAME = 'TransportMoves'")
+                .ToListAsync();
+
+            // Derived from the four event timestamps by TransportSchedule. A
+            // column here would mean someone can write "In Transit" for a lorry
+            // that never left.
+            Assert.DoesNotContain("Status", columns);
+
+            Assert.Contains("ApprovedAt", columns);
+            Assert.Contains("DepartedAt", columns);
+            Assert.Contains("ArrivedAt", columns);
+            Assert.Contains("CancelledAt", columns);
+
+            // And the slot is a timestamp, not the prototype's "ETA 16:30".
+            Assert.Contains("ScheduledFor", columns);
+        });
+    }
+
+    [Fact]
     public async Task Rentals_reference_their_vendor_by_foreign_key()
     {
         await factory.WithDbAsync(async db =>

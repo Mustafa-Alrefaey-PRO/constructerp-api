@@ -2,6 +2,7 @@ using ConstructErp.Domain.Equipment;
 using ConstructErp.Domain.Projects;
 using ConstructErp.Domain.Rentals;
 using ConstructErp.Domain.Requests;
+using ConstructErp.Domain.Transport;
 
 namespace ConstructErp.Application.Common;
 
@@ -104,6 +105,32 @@ public static class EnumLabels
         RentalStatus.Overdue => "Overdue",
         RentalStatus.Returned => "Returned",
         _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),
+    };
+
+    public static string ToLabel(this TransportStatus value) => value switch
+    {
+        TransportStatus.AwaitingApproval => "Awaiting Approval",
+        TransportStatus.Scheduled => "Scheduled",
+        TransportStatus.InTransit => "In Transit",
+        TransportStatus.Completed => "Completed",
+        TransportStatus.Cancelled => "Cancelled",
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),
+    };
+
+    public static string ToLabel(this TransportKind value) => value switch
+    {
+        TransportKind.Delivery => "Delivery",
+        TransportKind.ReturnMove => "Return move",
+        TransportKind.InspectionTransfer => "Inspection transfer",
+        _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),
+    };
+
+    public static TransportKind ToTransportKind(string label) => label switch
+    {
+        "Delivery" => TransportKind.Delivery,
+        "Return move" => TransportKind.ReturnMove,
+        "Inspection transfer" => TransportKind.InspectionTransfer,
+        _ => throw new ArgumentOutOfRangeException(nameof(label), label, "Unknown transport kind."),
     };
 
     public static CostCategory ToCostCategory(string label) => label switch

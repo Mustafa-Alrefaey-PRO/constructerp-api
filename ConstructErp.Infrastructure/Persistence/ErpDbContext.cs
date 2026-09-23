@@ -3,6 +3,7 @@ using ConstructErp.Domain.Equipment;
 using ConstructErp.Domain.Projects;
 using ConstructErp.Domain.Rentals;
 using ConstructErp.Domain.Requests;
+using ConstructErp.Domain.Transport;
 using Microsoft.EntityFrameworkCore;
 
 namespace ConstructErp.Infrastructure.Persistence;
@@ -37,6 +38,8 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
 
     public DbSet<Rental> Rentals => Set<Rental>();
 
+    public DbSet<TransportMove> TransportMoves => Set<TransportMove>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder builder)
     {
         // Every string column is NVARCHAR. Under SQL Server's default
@@ -53,6 +56,7 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
         ConfigureEquipment(builder);
         ConfigureRequests(builder);
         ConfigureRentals(builder);
+        ConfigureTransport(builder);
         ConfigureAuditing(builder);
 
         // No HasData here: EF Core cannot seed entities that use complex
@@ -230,6 +234,39 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
             rental.HasIndex(r => new { r.ReturnedOn, r.ExpectedReturnOn });
             rental.HasIndex(r => r.VendorId);
             rental.HasIndex(r => r.ProjectId);
+        });
+    }
+
+    private static void ConfigureTransport(ModelBuilder builder)
+    {
+        builder.Entity<TransportMove>(move =>
+        {
+            move.HasIndex(m => m.Code).IsUnique();
+            move.Property(m => m.Code).HasMaxLength(32);
+            move.Property(m => m.Kind).HasConversion<int>();
+
+            move.ComplexProperty(m => m.Origin).IsRequired();
+            move.ComplexProperty(m => m.Destination).IsRequired();
+            move.ComplexProperty(m => m.Notes).IsRequired();
+
+            // No Status column. A move's status is derived from its four event
+            // timestamps by TransportSchedule; there is nothing to fall stale.
+
+            move.HasOne(m => m.Equipment)
+                .WithMany()
+                .HasForeignKey(m => m.EquipmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            move.HasOne(m => m.Project)
+                .WithMany()
+                .HasForeignKey(m => m.ProjectId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Backs "what is still to come" and "what is running late": both
+            // filter undeparted moves ordered by their slot.
+            move.HasIndex(m => new { m.DepartedAt, m.ScheduledFor });
+            move.HasIndex(m => m.ProjectId);
+            move.HasIndex(m => m.EquipmentId);
         });
     }
 

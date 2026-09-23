@@ -2,6 +2,7 @@ using ConstructErp.Domain.Common;
 using ConstructErp.Domain.Equipment;
 using ConstructErp.Domain.Projects;
 using ConstructErp.Domain.Rentals;
+using ConstructErp.Domain.Transport;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -30,6 +31,77 @@ public sealed class ErpDbSeeder(ErpDbContext db, ILogger<ErpDbSeeder> logger)
 
         var vendors = await SeedVendorsAsync(cancellationToken);
         await SeedRentalsAsync(vendors, projects, cancellationToken);
+        await SeedTransportAsync(projects, cancellationToken);
+    }
+
+    /// <summary>
+    /// Demo moves, one at each stage of the workflow.
+    /// </summary>
+    /// <remarks>
+    /// Like the rentals, these are seeded as EVENTS rather than statuses, and
+    /// dated relative to now. The move that is In Transit is in transit because
+    /// a departure was recorded for it, not because the word was typed into a
+    /// column — which is the whole point of TransportSchedule.
+    ///
+    /// The prototype's third move belonged to "Harbor Yard", which was never a
+    /// project. It is seeded with no project rather than inventing one, the
+    /// same choice the equipment seeder makes.
+    /// </remarks>
+    private async Task SeedTransportAsync(
+        Dictionary<string, Project> projects, CancellationToken cancellationToken)
+    {
+        if (await db.TransportMoves.AnyAsync(cancellationToken))
+        {
+            return;
+        }
+
+        var equipment = await db.Equipment.ToDictionaryAsync(e => e.Code, cancellationToken);
+        var now = DateTimeOffset.UtcNow;
+
+        var wanted = new (string Code, string Equipment, string? Project, string OriginEn,
+            string OriginAr, string DestEn, string DestAr, TransportKind Kind, double HoursOut,
+            bool Approved, bool Departed, decimal Cost)[]
+        {
+            // Approved and departed -> In Transit, derived.
+            ("TRP-5001", "EQ-331", "PRJ-1001", "Yard A", "الساحة أ",
+                "Downtown Tower", "برج وسط المدينة", TransportKind.Delivery, 3, true, true, 2400m),
+            // Approved, not yet departed -> Scheduled.
+            ("TRP-5002", "EQ-219", "PRJ-1018", "Airport Expansion", "توسعة المطار",
+                "Vendor Yard", "ساحة المورد", TransportKind.ReturnMove, 48, true, false, 3150m),
+            // Not approved -> Awaiting Approval, and it cannot depart.
+            ("TRP-5003", "EQ-512", null, "Harbor Yard", "ساحة الميناء",
+                "Service Center", "مركز الخدمة", TransportKind.InspectionTransfer, 96,
+                false, false, 1100m),
+        };
+
+        foreach (var (code, equipmentCode, projectCode, originEn, originAr, destEn, destAr,
+                     kind, hoursOut, approved, departed, cost) in wanted)
+        {
+            if (!equipment.TryGetValue(equipmentCode, out var asset))
+            {
+                continue;
+            }
+
+            db.TransportMoves.Add(new TransportMove
+            {
+                Code = code,
+                EquipmentId = asset.Id,
+                ProjectId = projectCode is not null && projects.TryGetValue(projectCode, out var p)
+                    ? p.Id
+                    : null,
+                Origin = new LocalizedText(originEn, originAr),
+                Destination = new LocalizedText(destEn, destAr),
+                Kind = kind,
+                ScheduledFor = now.AddHours(hoursOut),
+                ApprovedAt = approved ? now.AddHours(-6) : null,
+                DepartedAt = departed ? now.AddHours(-1) : null,
+                Cost = cost,
+                Notes = new LocalizedText(),
+            });
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Seeded {Count} transport moves.", wanted.Length);
     }
 
     private async Task<Dictionary<string, Vendor>> SeedVendorsAsync(
