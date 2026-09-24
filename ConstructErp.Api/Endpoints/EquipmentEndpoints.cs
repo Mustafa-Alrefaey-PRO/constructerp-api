@@ -44,7 +44,18 @@ public static class EquipmentEndpoints
     private static async Task<IResult> Create(
         SaveEquipmentRequest request, ErpDbContext db, CancellationToken ct)
     {
-        if (await db.Equipment.AnyAsync(e => e.Code == request.Code, ct))
+        // Blank means "you pick one"; the client no longer guesses.
+        if (string.IsNullOrWhiteSpace(request.Code))
+        {
+            request = request with
+            {
+                Code = BusinessCodes.Next(
+                    "EQ-",
+                    await db.Equipment.IgnoreQueryFilters().Select(e => e.Code).ToListAsync(ct)),
+            };
+        }
+        // IgnoreQueryFilters: a soft-deleted asset still holds its code.
+        else if (await db.Equipment.IgnoreQueryFilters().AnyAsync(e => e.Code == request.Code, ct))
         {
             return Results.Conflict(new { error = $"Equipment code '{request.Code}' already exists." });
         }
@@ -75,7 +86,8 @@ public static class EquipmentEndpoints
             return Results.NotFound();
         }
 
-        if (await db.Equipment.AnyAsync(e => e.Code == request.Code && e.Id != id, ct))
+        if (await db.Equipment.IgnoreQueryFilters()
+                .AnyAsync(e => e.Code == request.Code && e.Id != id, ct))
         {
             return Results.Conflict(new { error = $"Equipment code '{request.Code}' already exists." });
         }

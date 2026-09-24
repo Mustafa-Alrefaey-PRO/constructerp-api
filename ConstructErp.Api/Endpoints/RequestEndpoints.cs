@@ -46,7 +46,13 @@ public static class RequestEndpoints
     private static async Task<IResult> Create(
         SaveRequestRequest body, ErpDbContext db, CancellationToken ct)
     {
-        if (await db.Requests.AnyAsync(r => r.Code == body.Code, ct))
+        // Blank means "you pick one" — which is what the client now sends, so
+        // it stops guessing a code it cannot verify. See BusinessCodes.
+        if (string.IsNullOrWhiteSpace(body.Code))
+        {
+            body = body with { Code = await NextCodeAsync(db, ct) };
+        }
+        else if (await CodeTakenAsync(db, body.Code, null, ct))
         {
             return Results.Conflict(new { error = $"Request code '{body.Code}' already exists." });
         }
@@ -95,7 +101,7 @@ public static class RequestEndpoints
             });
         }
 
-        if (await db.Requests.AnyAsync(r => r.Code == body.Code && r.Id != id, ct))
+        if (await CodeTakenAsync(db, body.Code, id, ct))
         {
             return Results.Conflict(new { error = $"Request code '{body.Code}' already exists." });
         }
@@ -361,4 +367,23 @@ public static class RequestEndpoints
 
         return actions;
     }
+
+    /// <summary>
+    /// Whether a code is already spoken for, INCLUDING by a soft-deleted row.
+    /// </summary>
+    /// <remarks>
+    /// IgnoreQueryFilters is the whole point. Without it this check cannot see
+    /// deleted rows, but the unique index still covers them — so the check
+    /// passes and the INSERT fails, turning a 409 into a 500.
+    /// </remarks>
+    private static Task<bool> CodeTakenAsync(
+        ErpDbContext db, string code, Guid? exceptId, CancellationToken ct) =>
+        db.Requests
+            .IgnoreQueryFilters()
+            .AnyAsync(r => r.Code == code && (exceptId == null || r.Id != exceptId), ct);
+
+    private static async Task<string> NextCodeAsync(ErpDbContext db, CancellationToken ct) =>
+        BusinessCodes.Next(
+            "REQ-",
+            await db.Requests.IgnoreQueryFilters().Select(r => r.Code).ToListAsync(ct));
 }

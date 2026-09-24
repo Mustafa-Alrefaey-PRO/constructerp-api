@@ -40,7 +40,19 @@ public static class ProjectEndpoints
     private static async Task<IResult> Create(
         SaveProjectRequest request, ErpDbContext db, CancellationToken ct)
     {
-        if (await db.Projects.AnyAsync(p => p.Code == request.Code, ct))
+        // Blank means "you pick one"; the client no longer guesses.
+        if (string.IsNullOrWhiteSpace(request.Code))
+        {
+            request = request with
+            {
+                Code = BusinessCodes.Next(
+                    "PRJ-",
+                    await db.Projects.IgnoreQueryFilters().Select(p => p.Code).ToListAsync(ct)),
+            };
+        }
+        // IgnoreQueryFilters: a soft-deleted row still holds its code in the
+        // unique index, so a check that cannot see it produces a 500 later.
+        else if (await db.Projects.IgnoreQueryFilters().AnyAsync(p => p.Code == request.Code, ct))
         {
             return Results.Conflict(new { error = $"Project code '{request.Code}' already exists." });
         }
@@ -72,7 +84,8 @@ public static class ProjectEndpoints
 
         // Codes are editable but must stay unique — excluding this row, or an
         // unchanged code would collide with itself.
-        if (await db.Projects.AnyAsync(p => p.Code == request.Code && p.Id != id, ct))
+        if (await db.Projects.IgnoreQueryFilters()
+                .AnyAsync(p => p.Code == request.Code && p.Id != id, ct))
         {
             return Results.Conflict(new { error = $"Project code '{request.Code}' already exists." });
         }

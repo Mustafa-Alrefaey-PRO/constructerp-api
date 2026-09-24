@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using ConstructErp.Application.Common;
 using ConstructErp.Application.Equipment;
+using ConstructErp.Application.Projects;
 using ConstructErp.Application.Requests;
 
 namespace ConstructErp.Tests;
@@ -248,4 +249,65 @@ public sealed class RequestEndpointTests(ApiFactory factory)
         asset.Utilization,
         asset.DailyCost,
         asset.NextAction);
+
+    [Fact]
+    public async Task A_code_freed_by_a_soft_delete_is_not_handed_out_again()
+    {
+        var client = await factory.AdminAsync();
+        var (equipment, project) = await ReferencesAsync();
+
+        // Create, then soft-delete. The row is gone from every query but its
+        // code is still held by the unique index.
+        var first = await CreateAsync(client, equipment.Id, project.Id, code: null);
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await client.DeleteAsync($"/api/requests/{first.Id}")).StatusCode);
+
+        // The bug this guards: the client allocated codes from the rows it
+        // could see, so it reissued the deleted code and the INSERT died at
+        // the database as a 500. The API allocates now, and it can see the
+        // deleted row.
+        var second = await CreateAsync(client, equipment.Id, project.Id, code: null);
+
+        Assert.NotEqual(first.Code, second.Code);
+
+        await client.DeleteAsync($"/api/requests/{second.Id}");
+    }
+
+    [Fact]
+    public async Task Reusing_a_soft_deleted_code_explicitly_is_a_conflict_not_a_crash()
+    {
+        var client = await factory.AdminAsync();
+        var (equipment, project) = await ReferencesAsync();
+
+        var first = await CreateAsync(client, equipment.Id, project.Id, code: null);
+        await client.DeleteAsync($"/api/requests/{first.Id}");
+
+        var response = await client.PostAsJsonAsync("/api/requests", new SaveRequestRequest(
+            first.Code, equipment.Id, project.Id, "Owned", "Tester", null, null,
+            new LocalizedTextDto("Site", null), new LocalizedTextDto("Testing", null), 10m), Json);
+
+        // A refusal the caller can act on, not an unhandled database error.
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    private async Task<RequestDto> CreateAsync(
+        HttpClient client, Guid equipmentId, Guid projectId, string? code)
+    {
+        var response = await client.PostAsJsonAsync("/api/requests", new SaveRequestRequest(
+            code ?? string.Empty, equipmentId, projectId, "Owned", "Tester", null, null,
+            new LocalizedTextDto("Site", null), new LocalizedTextDto("Testing", null), 10m), Json);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        return (await response.Content.ReadFromJsonAsync<RequestDto>(Json))!;
+    }
+
+    private async Task<(EquipmentDto Equipment, ProjectDto Project)> ReferencesAsync()
+    {
+        var client = await factory.AdminAsync();
+        var equipment = (await GetAsync<List<EquipmentDto>>(client, "/api/equipment")).First();
+        var project = (await GetAsync<List<ProjectDto>>(client, "/api/projects")).First();
+
+        return (equipment, project);
+    }
 }
