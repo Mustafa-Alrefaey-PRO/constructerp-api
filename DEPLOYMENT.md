@@ -97,6 +97,16 @@ Settings → Secrets and variables → Actions.
 | `AZURE_SQL_USER` | `erpadmin` |
 | `AZURE_SQL_PASSWORD` | the password from step 1 |
 
+Also add a repository **variable** (not a secret):
+
+| Variable | Value |
+| --- | --- |
+| `AZURE_DEPLOY_ENABLED` | `true` |
+
+The deploy job is skipped until this is set. Without that gate the job runs on
+every push, fails at the Azure login because the secrets do not exist yet, and
+teaches everyone to ignore a red cross on `main`.
+
 Then run **Deploy API to Azure App Service** from the Actions tab. It runs the
 full test suite against a real SQL Server first, applies migrations as an
 idempotent script, deploys, and fails if `/health` does not return 200.

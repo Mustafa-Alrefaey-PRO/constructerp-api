@@ -52,6 +52,13 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+
+    # Skipped until the Azure resources exist and AZURE_DEPLOY_ENABLED is set
+    # to "true" as a repository variable. Without this the job runs on every
+    # push, fails at the Azure login, and trains everyone to ignore a red
+    # cross on main.
+    if: vars.AZURE_DEPLOY_ENABLED == 'true'
+
     environment:
       name: production
       url: ${{ steps.deploy.outputs.webapp-url }}
@@ -69,6 +76,12 @@ jobs:
       #
       # The script is idempotent, so re-running a deploy is safe and applying
       # it to an already-current database is a no-op.
+      # `dotnet ef` builds the project, and a build needs a restore first. The
+      # first run of this workflow failed here with NETSDK1004 because the
+      # step went straight to generating the script.
+      - name: Restore
+        run: dotnet restore
+
       - name: Generate migration script
         run: |
           dotnet tool install --global dotnet-ef
