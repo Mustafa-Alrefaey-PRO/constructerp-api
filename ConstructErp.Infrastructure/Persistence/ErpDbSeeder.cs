@@ -26,6 +26,28 @@ namespace ConstructErp.Infrastructure.Persistence;
 public sealed class ErpDbSeeder(
     ErpDbContext db, IConfiguration configuration, ILogger<ErpDbSeeder> logger)
 {
+    /// <summary>
+    /// Creates the organizations and sign-in accounts, and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// The production entry point. A freshly migrated database has no users,
+    /// so nobody can sign in and there is no way to create the first account
+    /// through the API — every route requires authentication. This closes that
+    /// loop without also inserting demo projects and equipment into a real
+    /// system.
+    ///
+    /// Idempotent, and gated on the Seed section being configured: with no
+    /// configuration it creates nothing rather than creating a
+    /// known-password administrator.
+    /// </remarks>
+    public async Task SeedIdentityAsync(CancellationToken cancellationToken = default)
+    {
+        var organizations = await SeedOrganizationsAsync(
+            includeDemoCarriers: false, cancellationToken);
+
+        await SeedUsersAsync(organizations, cancellationToken);
+    }
+
     public async Task SeedAsync(CancellationToken cancellationToken = default)
     {
         var types = await SeedEquipmentTypesAsync(cancellationToken);
@@ -33,7 +55,9 @@ public sealed class ErpDbSeeder(
         await SeedEquipmentAsync(types, projects, cancellationToken);
         await SeedCostEntriesAsync(projects, cancellationToken);
 
-        var organizations = await SeedOrganizationsAsync(cancellationToken);
+        var organizations = await SeedOrganizationsAsync(
+            includeDemoCarriers: true, cancellationToken);
+
         var users = await SeedUsersAsync(organizations, cancellationToken);
 
         var vendors = await SeedVendorsAsync(cancellationToken);
@@ -41,8 +65,14 @@ public sealed class ErpDbSeeder(
         await SeedTransportAsync(projects, organizations, users, cancellationToken);
     }
 
+    /// <param name="includeDemoCarriers">
+    /// False on the production path. The internal organization is real — it is
+    /// the company running the system — but "Delta Haulage" is demo data, and
+    /// a carrier nobody works with sitting in a live database is the kind of
+    /// thing that gets mistaken for a real record later.
+    /// </param>
     private async Task<Dictionary<string, Organization>> SeedOrganizationsAsync(
-        CancellationToken cancellationToken)
+        bool includeDemoCarriers, CancellationToken cancellationToken)
     {
         var existing = await db.Organizations.ToDictionaryAsync(o => o.Code, cancellationToken);
 
@@ -70,7 +100,8 @@ public sealed class ErpDbSeeder(
 
         foreach (var organization in wanted)
         {
-            if (existing.ContainsKey(organization.Code))
+            if (existing.ContainsKey(organization.Code)
+                || (!includeDemoCarriers && organization.Kind == OrganizationKind.Carrier))
             {
                 continue;
             }

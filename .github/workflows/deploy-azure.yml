@@ -1,0 +1,139 @@
+name: Deploy API to Azure App Service
+
+# Manual for now, plus every push to main once you are happy with it. Keeping
+# workflow_dispatch means you can deploy a known-good commit without pushing.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+env:
+  DOTNET_VERSION: "10.0.x"
+
+permissions:
+  contents: read
+
+jobs:
+  # The same gates CI runs. A build that cannot pass its own tests must not
+  # reach a database holding real records.
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Str0ng!Passw0rd"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Str0ng!Passw0rd' -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Test
+        env:
+          ConstructErp_TestSqlServer: "Server=localhost,1433;User Id=sa;Password=Str0ng!Passw0rd;TrustServerCertificate=True"
+        run: dotnet test --configuration Release
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.webapp-url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # Migrations run HERE, not at application startup. A schema change that
+      # fails in the pipeline stops the release; the same failure during
+      # startup leaves a half-migrated database serving requests.
+      #
+      # The script is idempotent, so re-running a deploy is safe and applying
+      # it to an already-current database is a no-op.
+      - name: Generate migration script
+        run: |
+          dotnet tool install --global dotnet-ef
+          dotnet ef migrations script \
+            --idempotent \
+            --project ConstructErp.Infrastructure \
+            --startup-project ConstructErp.Api \
+            --output migrate.sql
+
+      - name: Sign in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # Azure SQL rejects unknown IPs, and GitHub runners do not have stable
+      # ones. The rule is opened for this run and removed in the step after,
+      # which always runs so a failed migration does not leave the database
+      # reachable from a retired runner's address.
+      - name: Allow this runner through the SQL firewall
+        id: firewall
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          echo "rule=gh-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+          az sql server firewall-rule create \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --server "${{ secrets.AZURE_SQL_SERVER }}" \
+            --name "gh-${{ github.run_id }}" \
+            --start-ip-address "$RUNNER_IP" \
+            --end-ip-address "$RUNNER_IP"
+
+      - name: Apply migrations
+        run: |
+          sqlcmd -S "${{ secrets.AZURE_SQL_SERVER }}.database.windows.net" \
+            -d "${{ secrets.AZURE_SQL_DATABASE }}" \
+            -U "${{ secrets.AZURE_SQL_USER }}" \
+            -P "${{ secrets.AZURE_SQL_PASSWORD }}" \
+            -i migrate.sql -b
+
+      - name: Close the SQL firewall
+        if: always()
+        run: |
+          az sql server firewall-rule delete \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --server "${{ secrets.AZURE_SQL_SERVER }}" \
+            --name "${{ steps.firewall.outputs.rule }}" || true
+
+      - name: Publish
+        run: dotnet publish ConstructErp.Api --configuration Release --output ./publish
+
+      - name: Deploy to App Service
+        id: deploy
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          package: ./publish
+
+      # A deploy that returns anything but 200 here has not actually shipped.
+      - name: Verify the deployment is serving
+        run: |
+          for attempt in $(seq 1 10); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' \
+              "https://${{ secrets.AZURE_WEBAPP_NAME }}.azurewebsites.net/health" || true)
+            echo "attempt $attempt: $status"
+            [ "$status" = "200" ] && exit 0
+            sleep 15
+          done
+          echo "Health check never returned 200."
+          exit 1

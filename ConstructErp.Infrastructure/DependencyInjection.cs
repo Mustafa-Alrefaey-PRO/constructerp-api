@@ -122,6 +122,24 @@ public static class DependencyInjection
     }
 
     /// <summary>
+    /// Ensures the sign-in accounts exist, without touching the schema.
+    /// </summary>
+    /// <remarks>
+    /// The production counterpart to InitialiseDatabaseAsync. It deliberately
+    /// does NOT migrate: a failed migration during startup leaves a
+    /// half-migrated database serving traffic, whereas the same failure in the
+    /// deploy pipeline stops the release. Migrations run there; see
+    /// DEPLOYMENT.md.
+    /// </remarks>
+    public static async Task EnsureAccountsAsync(this IServiceProvider services)
+    {
+        await using var scope = services.CreateAsyncScope();
+
+        var seeder = scope.ServiceProvider.GetRequiredService<ErpDbSeeder>();
+        await seeder.SeedIdentityAsync();
+    }
+
+    /// <summary>
     /// Applies pending migrations and seeds. Development only — production
     /// migrations belong in the deploy pipeline, where a failure can stop the
     /// release rather than leaving a half-migrated database serving traffic.

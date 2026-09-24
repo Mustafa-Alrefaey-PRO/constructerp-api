@@ -39,6 +39,13 @@ else
     // Only in non-development: the Angular dev server talks plain HTTP, and
     // redirecting its API calls to HTTPS breaks CORS preflight locally.
     app.UseHttpsRedirection();
+
+    // No migration here on purpose — the deploy pipeline applies those, so a
+    // schema failure stops the release instead of leaving a half-migrated
+    // database serving requests. This only makes sure an administrator
+    // exists, because a freshly migrated database has nobody who can sign in
+    // and every route requires authentication.
+    await app.Services.EnsureAccountsAsync();
 }
 
 app.UseCors(DevCorsPolicy);
