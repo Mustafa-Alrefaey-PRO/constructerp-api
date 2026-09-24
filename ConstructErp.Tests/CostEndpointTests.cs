@@ -35,7 +35,7 @@ public sealed class CostEndpointTests(ApiFactory factory)
     [Fact]
     public async Task Adding_an_entry_moves_the_project_total()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var project = (await GetAsync<List<ProjectDto>>("/api/projects"))
             .First(p => p.Code == "PRJ-1032");
         var before = project.ExtraSpend;
@@ -68,7 +68,7 @@ public sealed class CostEndpointTests(ApiFactory factory)
     {
         var project = (await GetAsync<List<ProjectDto>>("/api/projects")).First();
 
-        var response = await factory.CreateClient().PostAsJsonAsync("/api/costs",
+        var response = await (await factory.AdminAsync()).PostAsJsonAsync("/api/costs",
             new SaveCostEntryRequest(project.Id, category, amount, new DateOnly(2026, 8, 1), null),
             Json);
 
@@ -76,5 +76,5 @@ public sealed class CostEndpointTests(ApiFactory factory)
     }
 
     private async Task<T> GetAsync<T>(string url) =>
-        (await factory.CreateClient().GetFromJsonAsync<T>(url, Json))!;
+        (await (await factory.AdminAsync()).GetFromJsonAsync<T>(url, Json))!;
 }

@@ -46,7 +46,7 @@ public sealed class RentalEndpointTests(ApiFactory factory)
     {
         var vendor = (await GetAsync<List<VendorDto>>("/api/vendors")).First(v => v.RentalCount > 0);
 
-        var response = await factory.CreateClient().DeleteAsync($"/api/vendors/{vendor.Id}");
+        var response = await (await factory.AdminAsync()).DeleteAsync($"/api/vendors/{vendor.Id}");
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
@@ -105,7 +105,7 @@ public sealed class RentalEndpointTests(ApiFactory factory)
     [Fact]
     public async Task Recording_a_return_clears_an_overdue_rental()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var (vendor, asset, project) = await ReferencesAsync();
         var code = $"RNT-T{Random.Shared.Next(1000, 9999)}";
 
@@ -140,7 +140,7 @@ public sealed class RentalEndpointTests(ApiFactory factory)
     [Fact]
     public async Task Booking_a_return_schedules_it_but_a_passed_due_date_still_wins()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var (vendor, asset, project) = await ReferencesAsync();
         var code = $"RNT-T{Random.Shared.Next(1000, 9999)}";
 
@@ -173,7 +173,7 @@ public sealed class RentalEndpointTests(ApiFactory factory)
     [Fact]
     public async Task A_return_cannot_be_recorded_twice()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var (vendor, asset, project) = await ReferencesAsync();
         var code = $"RNT-T{Random.Shared.Next(1000, 9999)}";
 
@@ -196,7 +196,7 @@ public sealed class RentalEndpointTests(ApiFactory factory)
     [Fact]
     public async Task Rental_round_trips_arabic_notes_and_three_decimal_money()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var (vendor, asset, project) = await ReferencesAsync();
         var code = $"RNT-T{Random.Shared.Next(1000, 9999)}";
 
@@ -230,7 +230,7 @@ public sealed class RentalEndpointTests(ApiFactory factory)
     {
         var (vendor, asset, project) = await ReferencesAsync();
 
-        var response = await factory.CreateClient().PostAsJsonAsync("/api/rentals",
+        var response = await (await factory.AdminAsync()).PostAsJsonAsync("/api/rentals",
             new SaveRentalRequest(
                 $"RNT-T{Random.Shared.Next(1000, 9999)}", vendor.Id, asset.Id, project.Id,
                 Today, Today.AddDays(-1), 100m, null),
@@ -244,7 +244,7 @@ public sealed class RentalEndpointTests(ApiFactory factory)
     {
         var (_, asset, project) = await ReferencesAsync();
 
-        var response = await factory.CreateClient().PostAsJsonAsync("/api/rentals",
+        var response = await (await factory.AdminAsync()).PostAsJsonAsync("/api/rentals",
             new SaveRentalRequest(
                 $"RNT-T{Random.Shared.Next(1000, 9999)}", Guid.NewGuid(), asset.Id, project.Id,
                 Today, Today.AddDays(10), 100m, null),
@@ -263,5 +263,5 @@ public sealed class RentalEndpointTests(ApiFactory factory)
     }
 
     private async Task<T> GetAsync<T>(string url) =>
-        (await factory.CreateClient().GetFromJsonAsync<T>(url, Json))!;
+        (await (await factory.AdminAsync()).GetFromJsonAsync<T>(url, Json))!;
 }

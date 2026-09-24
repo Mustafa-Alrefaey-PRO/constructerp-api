@@ -14,6 +14,12 @@ public sealed record TransportMoveDto(
     LocalizedTextDto Origin,
     LocalizedTextDto Destination,
     string Kind,
+    // Who is running the move, and who is driving. Also the scoping keys: a
+    // carrier's users only ever receive rows whose CarrierId is their own.
+    Guid? CarrierId,
+    LocalizedTextDto? CarrierName,
+    Guid? DriverId,
+    string? DriverName,
     DateTimeOffset ScheduledFor,
     DateTimeOffset? ApprovedAt,
     DateTimeOffset? DepartedAt,

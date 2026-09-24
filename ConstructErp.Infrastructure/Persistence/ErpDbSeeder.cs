@@ -1,9 +1,12 @@
 using ConstructErp.Domain.Common;
+using ConstructErp.Domain.Identity;
 using ConstructErp.Domain.Equipment;
 using ConstructErp.Domain.Projects;
 using ConstructErp.Domain.Rentals;
 using ConstructErp.Domain.Transport;
 using Microsoft.EntityFrameworkCore;
+using ConstructErp.Infrastructure.Identity;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace ConstructErp.Infrastructure.Persistence;
@@ -20,7 +23,8 @@ namespace ConstructErp.Infrastructure.Persistence;
 /// start. The demo records mirror the frontend's mock data so the Angular app
 /// shows the same fleet it always has once it is pointed at the API.
 /// </remarks>
-public sealed class ErpDbSeeder(ErpDbContext db, ILogger<ErpDbSeeder> logger)
+public sealed class ErpDbSeeder(
+    ErpDbContext db, IConfiguration configuration, ILogger<ErpDbSeeder> logger)
 {
     public async Task SeedAsync(CancellationToken cancellationToken = default)
     {
@@ -29,9 +33,126 @@ public sealed class ErpDbSeeder(ErpDbContext db, ILogger<ErpDbSeeder> logger)
         await SeedEquipmentAsync(types, projects, cancellationToken);
         await SeedCostEntriesAsync(projects, cancellationToken);
 
+        var organizations = await SeedOrganizationsAsync(cancellationToken);
+        var users = await SeedUsersAsync(organizations, cancellationToken);
+
         var vendors = await SeedVendorsAsync(cancellationToken);
         await SeedRentalsAsync(vendors, projects, cancellationToken);
-        await SeedTransportAsync(projects, cancellationToken);
+        await SeedTransportAsync(projects, organizations, users, cancellationToken);
+    }
+
+    private async Task<Dictionary<string, Organization>> SeedOrganizationsAsync(
+        CancellationToken cancellationToken)
+    {
+        var existing = await db.Organizations.ToDictionaryAsync(o => o.Code, cancellationToken);
+
+        var wanted = new[]
+        {
+            new Organization
+            {
+                Code = "ORG-000",
+                Kind = OrganizationKind.Internal,
+                Name = new LocalizedText("ConstructERP Group", "\u0645\u062c\u0645\u0648\u0639\u0629 \u0643\u0648\u0646\u0633\u062a\u0631\u0643\u062a"),
+                ContactName = "Head Office",
+                Phone = "+965 2222 0000",
+                Email = "ops@constructerp.local",
+            },
+            new Organization
+            {
+                Code = "ORG-001",
+                Kind = OrganizationKind.Carrier,
+                Name = new LocalizedText("Delta Haulage", "\u062f\u0644\u062a\u0627 \u0644\u0644\u0646\u0642\u0644"),
+                ContactName = "S. Qassem",
+                Phone = "+965 2222 7788",
+                Email = "office@deltahaulage.local",
+            },
+        };
+
+        foreach (var organization in wanted)
+        {
+            if (existing.ContainsKey(organization.Code))
+            {
+                continue;
+            }
+
+            db.Organizations.Add(organization);
+            existing[organization.Code] = organization;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return existing;
+    }
+
+    /// <summary>
+    /// Development sign-in accounts, one per role.
+    /// </summary>
+    /// <remarks>
+    /// Passwords come from configuration and are hashed before they touch the
+    /// database. Seeding runs in Development only; an environment that reached
+    /// this code with no Seed section configured creates nothing rather than
+    /// creating a known-password administrator.
+    /// </remarks>
+    private async Task<Dictionary<string, AppUser>> SeedUsersAsync(
+        Dictionary<string, Organization> organizations, CancellationToken cancellationToken)
+    {
+        var existing = await db.Users.ToDictionaryAsync(u => u.Email, cancellationToken);
+        var seed = configuration.GetSection("Seed");
+
+        var wanted = new (string EmailKey, string PasswordKey, string Name, UserRole Role,
+            string? OrgCode)[]
+        {
+            ("AdminEmail", "AdminPassword", "System Administrator", UserRole.Admin, "ORG-000"),
+            ("CarrierEmail", "CarrierPassword", "Delta Haulage Office",
+                UserRole.TruckingCompany, "ORG-001"),
+            ("DriverEmail", "DriverPassword", "Y. Kamal", UserRole.Driver, "ORG-001"),
+        };
+
+        var created = 0;
+
+        foreach (var (emailKey, passwordKey, name, role, orgCode) in wanted)
+        {
+            var email = seed[emailKey]?.Trim().ToLowerInvariant();
+            var password = seed[passwordKey];
+
+            if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+            {
+                logger.LogWarning("Seed account {Key} is not configured; skipping.", emailKey);
+                continue;
+            }
+
+            if (existing.ContainsKey(email))
+            {
+                continue;
+            }
+
+            var user = new AppUser
+            {
+                Email = email,
+                DisplayName = name,
+                Role = role,
+                // An Admin carries no organization scope, so their queries stay
+                // unfiltered. The internal org exists for display only.
+                OrganizationId = role == UserRole.Admin
+                    ? null
+                    : orgCode is not null && organizations.TryGetValue(orgCode, out var org)
+                        ? org.Id
+                        : null,
+            };
+
+            user.PasswordHash = PasswordHashing.Hash(user, password);
+
+            db.Users.Add(user);
+            existing[email] = user;
+            created++;
+        }
+
+        if (created > 0)
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            logger.LogInformation("Seeded {Count} user accounts.", created);
+        }
+
+        return existing;
     }
 
     /// <summary>
@@ -48,15 +169,19 @@ public sealed class ErpDbSeeder(ErpDbContext db, ILogger<ErpDbSeeder> logger)
     /// same choice the equipment seeder makes.
     /// </remarks>
     private async Task SeedTransportAsync(
-        Dictionary<string, Project> projects, CancellationToken cancellationToken)
+        Dictionary<string, Project> projects,
+        Dictionary<string, Organization> organizations,
+        Dictionary<string, AppUser> users,
+        CancellationToken cancellationToken)
     {
-        if (await db.TransportMoves.AnyAsync(cancellationToken))
-        {
-            return;
-        }
-
         var equipment = await db.Equipment.ToDictionaryAsync(e => e.Code, cancellationToken);
         var now = DateTimeOffset.UtcNow;
+
+        // Two of the three go to the external carrier. If every move belonged
+        // to them, the scoping filter would look like it worked while proving
+        // nothing — an excluded row is what makes the test meaningful.
+        var carrier = organizations.GetValueOrDefault("ORG-001");
+        var driver = users.Values.FirstOrDefault(u => u.Role == UserRole.Driver);
 
         var wanted = new (string Code, string Equipment, string? Project, string OriginEn,
             string OriginAr, string DestEn, string DestAr, TransportKind Kind, double HoursOut,
@@ -74,6 +199,12 @@ public sealed class ErpDbSeeder(ErpDbContext db, ILogger<ErpDbSeeder> logger)
                 false, false, 1100m),
         };
 
+        if (await db.TransportMoves.AnyAsync(cancellationToken))
+        {
+            await BackfillCarrierAsync(carrier, driver, cancellationToken);
+            return;
+        }
+
         foreach (var (code, equipmentCode, projectCode, originEn, originAr, destEn, destAr,
                      kind, hoursOut, approved, departed, cost) in wanted)
         {
@@ -82,9 +213,15 @@ public sealed class ErpDbSeeder(ErpDbContext db, ILogger<ErpDbSeeder> logger)
                 continue;
             }
 
+            // TRP-5003 stays in-house: an unassigned move proves the carrier
+            // filter excludes rows as well as including them.
+            var external = code != "TRP-5003";
+
             db.TransportMoves.Add(new TransportMove
             {
                 Code = code,
+                CarrierId = external ? carrier?.Id : null,
+                DriverId = external ? driver?.Id : null,
                 EquipmentId = asset.Id,
                 ProjectId = projectCode is not null && projects.TryGetValue(projectCode, out var p)
                     ? p.Id
@@ -102,6 +239,47 @@ public sealed class ErpDbSeeder(ErpDbContext db, ILogger<ErpDbSeeder> logger)
 
         await db.SaveChangesAsync(cancellationToken);
         logger.LogInformation("Seeded {Count} transport moves.", wanted.Length);
+    }
+
+    /// <summary>
+    /// Attaches a carrier and driver to demo moves seeded before those columns
+    /// existed.
+    /// </summary>
+    /// <remarks>
+    /// Without this, a database seeded by an earlier build keeps three moves
+    /// with a null CarrierId, and signing in as the carrier shows an empty
+    /// list — which looks exactly like broken scoping. It is not a general
+    /// migration: it touches only the three known demo codes, and only where
+    /// the carrier is still unset, so it can never reassign a real move
+    /// somebody entered.
+    /// </remarks>
+    private async Task BackfillCarrierAsync(
+        Organization? carrier, AppUser? driver, CancellationToken cancellationToken)
+    {
+        if (carrier is null)
+        {
+            return;
+        }
+
+        string[] demoCodes = ["TRP-5001", "TRP-5002"];
+
+        var stale = await db.TransportMoves
+            .Where(move => demoCodes.Contains(move.Code) && move.CarrierId == null)
+            .ToListAsync(cancellationToken);
+
+        if (stale.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var move in stale)
+        {
+            move.CarrierId = carrier.Id;
+            move.DriverId = driver?.Id;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("Backfilled carrier on {Count} demo transport moves.", stale.Count);
     }
 
     private async Task<Dictionary<string, Vendor>> SeedVendorsAsync(

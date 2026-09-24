@@ -18,7 +18,7 @@ public sealed class RequestEndpointTests(ApiFactory factory)
     [Fact]
     public async Task A_request_walks_the_full_lifecycle()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var request = await CreateDraftAsync(client);
 
         Assert.Equal("Draft", request.Status);
@@ -57,7 +57,7 @@ public sealed class RequestEndpointTests(ApiFactory factory)
     [Fact]
     public async Task Equipment_cannot_be_set_to_working_without_a_completed_request()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
 
         // An asset that is not already working and has no completed request.
         var assets = await GetAsync<List<EquipmentDto>>(client, "/api/equipment");
@@ -75,7 +75,7 @@ public sealed class RequestEndpointTests(ApiFactory factory)
     [Fact]
     public async Task Equipment_can_be_set_to_working_once_its_request_is_ready()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var assets = await GetAsync<List<EquipmentDto>>(client, "/api/equipment");
         var asset = assets.First(a => a.Status != "Working");
 
@@ -99,7 +99,7 @@ public sealed class RequestEndpointTests(ApiFactory factory)
     [Fact]
     public async Task A_failed_inspection_parks_the_request_rather_than_releasing_it()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var request = await CreateDraftAsync(client);
 
         request = await PassAllAsync(client, request, "PreRequest");
@@ -118,7 +118,7 @@ public sealed class RequestEndpointTests(ApiFactory factory)
     [Fact]
     public async Task Rejection_requires_a_reason()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var request = await CreateDraftAsync(client);
 
         request = await PassAllAsync(client, request, "PreRequest");
@@ -140,7 +140,7 @@ public sealed class RequestEndpointTests(ApiFactory factory)
     [Fact]
     public async Task An_approved_request_can_no_longer_be_edited()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var request = await CreateDraftAsync(client);
 
         request = await PassAllAsync(client, request, "PreRequest");
@@ -159,7 +159,7 @@ public sealed class RequestEndpointTests(ApiFactory factory)
     [Fact]
     public async Task Return_date_before_required_date_is_rejected()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var assets = await GetAsync<List<EquipmentDto>>(client, "/api/equipment");
 
         var body = new SaveRequestRequest(

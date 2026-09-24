@@ -49,7 +49,7 @@ public sealed class TransportEndpointTests(ApiFactory factory)
     [Fact]
     public async Task A_move_cannot_depart_before_it_is_approved()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var move = await CreateAsync();
 
         Assert.Equal("Awaiting Approval", move.Status);
@@ -76,7 +76,7 @@ public sealed class TransportEndpointTests(ApiFactory factory)
     [Fact]
     public async Task The_full_lifecycle_moves_only_through_its_transitions()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var move = await CreateAsync();
 
         var approved = await TransitionAsync(move.Id, "approve");
@@ -103,7 +103,7 @@ public sealed class TransportEndpointTests(ApiFactory factory)
     [Fact]
     public async Task Approving_twice_is_refused()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var move = await CreateAsync();
 
         await TransitionAsync(move.Id, "approve");
@@ -119,7 +119,7 @@ public sealed class TransportEndpointTests(ApiFactory factory)
     [Fact]
     public async Task A_missed_slot_is_reported_as_late_without_anyone_flagging_it()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
 
         // Booked for two hours ago, approved, never departed.
         var move = await CreateAsync(scheduledInHours: -2);
@@ -142,7 +142,7 @@ public sealed class TransportEndpointTests(ApiFactory factory)
     [Fact]
     public async Task Cancelling_stops_the_move_and_takes_it_out_of_the_open_list()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var move = await CreateAsync();
 
         var cancelled = await TransitionAsync(move.Id, "cancel");
@@ -157,7 +157,7 @@ public sealed class TransportEndpointTests(ApiFactory factory)
     [Fact]
     public async Task Move_round_trips_arabic_and_three_decimal_money()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var (asset, project) = await ReferencesAsync();
         var code = $"TRP-T{Random.Shared.Next(1000, 9999)}";
 
@@ -198,7 +198,7 @@ public sealed class TransportEndpointTests(ApiFactory factory)
     {
         var (asset, project) = await ReferencesAsync();
 
-        var response = await factory.CreateClient().PostAsJsonAsync("/api/transport",
+        var response = await (await factory.AdminAsync()).PostAsJsonAsync("/api/transport",
             new SaveTransportMoveRequest(
                 $"TRP-T{Random.Shared.Next(1000, 9999)}", asset.Id, project.Id,
                 new LocalizedTextDto("A", null), new LocalizedTextDto("B", null),
@@ -214,7 +214,7 @@ public sealed class TransportEndpointTests(ApiFactory factory)
     {
         var (asset, project) = await ReferencesAsync();
 
-        var response = await factory.CreateClient().PostAsJsonAsync("/api/transport",
+        var response = await (await factory.AdminAsync()).PostAsJsonAsync("/api/transport",
             new SaveTransportMoveRequest(
                 $"TRP-T{Random.Shared.Next(10000, 99999)}", asset.Id, project.Id,
                 new LocalizedTextDto("Yard A", "الساحة أ"),
@@ -229,7 +229,7 @@ public sealed class TransportEndpointTests(ApiFactory factory)
 
     private async Task<TransportMoveDto> TransitionAsync(Guid id, string action)
     {
-        var response = await factory.CreateClient().PostAsJsonAsync(
+        var response = await (await factory.AdminAsync()).PostAsJsonAsync(
             $"/api/transport/{id}/{action}", new TransportEventRequest(null), Json);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -246,5 +246,5 @@ public sealed class TransportEndpointTests(ApiFactory factory)
     }
 
     private async Task<T> GetAsync<T>(string url) =>
-        (await factory.CreateClient().GetFromJsonAsync<T>(url, Json))!;
+        (await (await factory.AdminAsync()).GetFromJsonAsync<T>(url, Json))!;
 }

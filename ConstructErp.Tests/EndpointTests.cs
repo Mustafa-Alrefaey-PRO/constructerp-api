@@ -16,7 +16,7 @@ public sealed class EndpointTests(ApiFactory factory)
     [Fact]
     public async Task Health_reports_ok()
     {
-        var response = await factory.CreateClient().GetAsync("/health");
+        var response = await (await factory.AdminAsync()).GetAsync("/health");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
@@ -51,7 +51,7 @@ public sealed class EndpointTests(ApiFactory factory)
     [Fact]
     public async Task Project_round_trips_arabic_and_three_decimal_money()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var code = $"PRJ-T{Random.Shared.Next(1000, 9999)}";
 
         var request = new SaveProjectRequest(
@@ -89,7 +89,7 @@ public sealed class EndpointTests(ApiFactory factory)
     [Fact]
     public async Task Duplicate_project_code_is_rejected_as_a_conflict()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var existing = (await GetAsync<List<ProjectDto>>("/api/projects")).First();
 
         var request = new SaveProjectRequest(
@@ -127,7 +127,7 @@ public sealed class EndpointTests(ApiFactory factory)
             null,
             null);
 
-        var response = await factory.CreateClient().PostAsJsonAsync("/api/projects", request, Json);
+        var response = await (await factory.AdminAsync()).PostAsJsonAsync("/api/projects", request, Json);
 
         // A 400 naming the problem, not a 500 carrying a constraint violation.
         Assert.True(response.StatusCode == HttpStatusCode.BadRequest, because);
@@ -149,7 +149,7 @@ public sealed class EndpointTests(ApiFactory factory)
             1m,
             null);
 
-        var response = await factory.CreateClient().PostAsJsonAsync("/api/equipment", request, Json);
+        var response = await (await factory.AdminAsync()).PostAsJsonAsync("/api/equipment", request, Json);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
@@ -157,7 +157,7 @@ public sealed class EndpointTests(ApiFactory factory)
     [Fact]
     public async Task Out_of_range_utilization_is_clamped_rather_than_refused()
     {
-        var client = factory.CreateClient();
+        var client = await factory.AdminAsync();
         var types = await GetAsync<List<EquipmentTypeDto>>("/api/equipment/types");
 
         var request = new SaveEquipmentRequest(
@@ -181,5 +181,5 @@ public sealed class EndpointTests(ApiFactory factory)
     }
 
     private async Task<T> GetAsync<T>(string url) =>
-        (await factory.CreateClient().GetFromJsonAsync<T>(url, Json))!;
+        (await (await factory.AdminAsync()).GetFromJsonAsync<T>(url, Json))!;
 }

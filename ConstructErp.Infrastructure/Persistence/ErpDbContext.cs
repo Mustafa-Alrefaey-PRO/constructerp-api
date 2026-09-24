@@ -1,5 +1,7 @@
+using ConstructErp.Application.Common;
 using ConstructErp.Domain.Common;
 using ConstructErp.Domain.Equipment;
+using ConstructErp.Domain.Identity;
 using ConstructErp.Domain.Projects;
 using ConstructErp.Domain.Rentals;
 using ConstructErp.Domain.Requests;
@@ -8,7 +10,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ConstructErp.Infrastructure.Persistence;
 
-public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbContext(options)
+public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurrentUser currentUser)
+    : DbContext(options)
 {
     /// <summary>
     /// KWD has THREE decimal places (1 dinar = 1000 fils).
@@ -40,6 +43,12 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
 
     public DbSet<TransportMove> TransportMoves => Set<TransportMove>();
 
+    public DbSet<Organization> Organizations => Set<Organization>();
+
+    public DbSet<AppUser> Users => Set<AppUser>();
+
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder builder)
     {
         // Every string column is NVARCHAR. Under SQL Server's default
@@ -57,7 +66,13 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
         ConfigureRequests(builder);
         ConfigureRentals(builder);
         ConfigureTransport(builder);
+        ConfigureIdentity(builder);
         ConfigureAuditing(builder);
+
+        // AFTER auditing: it sets a soft-delete filter on every entity, and EF
+        // allows only one filter per entity type, so the scoped entities have
+        // to restate soft-delete inside their own combined expression.
+        ConfigureScoping(builder);
 
         // No HasData here: EF Core cannot seed entities that use complex
         // properties (dotnet/efcore#31254), and every name on these entities is
@@ -264,10 +279,106 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
 
             // Backs "what is still to come" and "what is running late": both
             // filter undeparted moves ordered by their slot.
+            // Restrict: a carrier with jobs on record cannot be removed from
+            // under them, and neither can a driver with a delivery history.
+            move.HasOne(m => m.Carrier)
+                .WithMany()
+                .HasForeignKey(m => m.CarrierId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            move.HasOne(m => m.Driver)
+                .WithMany()
+                .HasForeignKey(m => m.DriverId)
+                .OnDelete(DeleteBehavior.Restrict);
+
             move.HasIndex(m => new { m.DepartedAt, m.ScheduledFor });
             move.HasIndex(m => m.ProjectId);
             move.HasIndex(m => m.EquipmentId);
+            // The scoping columns are on the hot path of every transport read,
+            // because the query filter adds them to every single query.
+            move.HasIndex(m => m.CarrierId);
+            move.HasIndex(m => m.DriverId);
         });
+    }
+
+    private static void ConfigureIdentity(ModelBuilder builder)
+    {
+        builder.Entity<Organization>(org =>
+        {
+            org.HasIndex(o => o.Code).IsUnique();
+            org.Property(o => o.Code).HasMaxLength(32);
+            org.Property(o => o.ContactName).HasMaxLength(128);
+            org.Property(o => o.Phone).HasMaxLength(32);
+            org.Property(o => o.Kind).HasConversion<int>();
+            org.ComplexProperty(o => o.Name).IsRequired();
+        });
+
+        builder.Entity<AppUser>(user =>
+        {
+            // Unique on email: it is the login identifier. Stored lowercased,
+            // so the uniqueness check cannot be sidestepped by capitalisation.
+            user.HasIndex(u => u.Email).IsUnique();
+            user.Property(u => u.Email).HasMaxLength(256);
+            user.Property(u => u.DisplayName).HasMaxLength(128);
+            user.Property(u => u.Role).HasConversion<int>();
+
+            // PBKDF2 output from PasswordHasher, base64-encoded.
+            user.Property(u => u.PasswordHash).HasMaxLength(512);
+
+            user.HasOne(u => u.Organization)
+                .WithMany(o => o.Users)
+                .HasForeignKey(u => u.OrganizationId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            user.HasMany(u => u.RefreshTokens)
+                .WithOne(t => t.User!)
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            user.HasIndex(u => u.OrganizationId);
+        });
+
+        builder.Entity<RefreshToken>(token =>
+        {
+            // Looked up by hash on every refresh, so it needs its own index.
+            token.HasIndex(t => t.TokenHash).IsUnique();
+            token.Property(t => t.TokenHash).HasMaxLength(128);
+            token.HasIndex(t => t.UserId);
+        });
+    }
+
+    /// <summary>
+    /// Row-level scoping: whose records a signed-in user may read.
+    /// </summary>
+    /// <remarks>
+    /// Enforced here rather than in each endpoint on purpose. An endpoint that
+    /// forgets its WHERE clause leaks data silently and looks perfectly correct
+    /// in review; a filter on the model applies to every query that will ever
+    /// be written, including ones added years from now by someone who has never
+    /// read this file.
+    ///
+    /// The comparisons read from <c>currentUser</c>, which is scoped per
+    /// request. EF parameterises instance members referenced in a filter, so
+    /// this does not bake one user's id into a cached query plan.
+    ///
+    /// Both scope values are null for an Admin and for system contexts, which
+    /// makes the filter a no-op. That is why scoped endpoints must ALSO require
+    /// authorization: a filter cannot protect a route that never established
+    /// who was calling.
+    ///
+    /// <c>IgnoreQueryFilters()</c> bypasses this as well as soft-delete, so
+    /// treat any new use of it as a security review.
+    /// </remarks>
+    private void ConfigureScoping(ModelBuilder builder)
+    {
+        builder.Entity<TransportMove>().HasQueryFilter(move =>
+            move.DeletedAt == null
+            // A carrier's staff see their carrier's moves.
+            && (currentUser.ScopeOrganizationId == null
+                || move.CarrierId == currentUser.ScopeOrganizationId)
+            // A driver is scoped tighter still: their own assignments only.
+            && (currentUser.ScopeDriverId == null
+                || move.DriverId == currentUser.ScopeDriverId));
     }
 
     private static void ConfigureAuditing(ModelBuilder builder)
@@ -316,13 +427,20 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options) : DbCon
 
         foreach (var entry in ChangeTracker.Entries<Entity>())
         {
+            // CreatedBy/UpdatedBy have existed since the first migration and
+            // were always NULL, because there was no user to attribute
+            // anything to. This is where the audit trail starts working.
+            var actor = currentUser.UserId?.ToString();
+
             if (entry.State == EntityState.Added)
             {
                 entry.Entity.CreatedAt = now;
+                entry.Entity.CreatedBy ??= actor;
             }
             else if (entry.State == EntityState.Modified)
             {
                 entry.Entity.UpdatedAt = now;
+                entry.Entity.UpdatedBy = actor ?? entry.Entity.UpdatedBy;
             }
         }
     }

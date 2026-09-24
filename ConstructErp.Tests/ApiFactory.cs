@@ -1,5 +1,10 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using ConstructErp.Application.Identity;
 using ConstructErp.Infrastructure;
 using ConstructErp.Infrastructure.Persistence;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Data.SqlClient;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -88,6 +93,51 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
         await base.DisposeAsync();
     }
+
+    /// <summary>
+    /// A client already signed in as the seeded administrator.
+    /// </summary>
+    /// <remarks>
+    /// Every endpoint now requires authentication, so this is what most tests
+    /// want. It logs in through the real endpoint rather than forging a token,
+    /// which means the login path itself is exercised by every test that runs.
+    /// </remarks>
+    public Task<HttpClient> AdminAsync() => SignInAsync("AdminEmail", "AdminPassword");
+
+    /// <summary>Signed in as a carrier's office staff: scoped to that carrier.</summary>
+    public Task<HttpClient> CarrierAsync() => SignInAsync("CarrierEmail", "CarrierPassword");
+
+    /// <summary>Signed in as a driver: scoped to their own assignments.</summary>
+    public Task<HttpClient> DriverAsync() => SignInAsync("DriverEmail", "DriverPassword");
+
+    /// <summary>No credentials at all, for asserting that routes are closed.</summary>
+    public HttpClient AnonymousClient() => CreateClient();
+
+    public (string Email, string Password) Credentials(string emailKey, string passwordKey)
+    {
+        var configuration = Services.GetRequiredService<IConfiguration>().GetSection("Seed");
+
+        return (configuration[emailKey]!, configuration[passwordKey]!);
+    }
+
+    private async Task<HttpClient> SignInAsync(string emailKey, string passwordKey)
+    {
+        var (email, password) = Credentials(emailKey, passwordKey);
+        var client = CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/auth/login", new LoginRequest(email, password), JsonOptions);
+
+        response.EnsureSuccessStatusCode();
+
+        var auth = await response.Content.ReadFromJsonAsync<AuthResultDto>(JsonOptions);
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", auth!.AccessToken);
+
+        return client;
+    }
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>Runs an assertion directly against the database.</summary>
     public async Task WithDbAsync(Func<ErpDbContext, Task> action)

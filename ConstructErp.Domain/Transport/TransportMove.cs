@@ -1,5 +1,6 @@
 using ConstructErp.Domain.Common;
 using ConstructErp.Domain.Equipment;
+using ConstructErp.Domain.Identity;
 using ConstructErp.Domain.Projects;
 
 namespace ConstructErp.Domain.Transport;
@@ -52,6 +53,23 @@ public sealed class TransportMove : Entity
     public LocalizedText Destination { get; set; } = new();
 
     public TransportKind Kind { get; set; }
+
+    /// <summary>
+    /// The haulage contractor running this move.
+    /// </summary>
+    /// <remarks>
+    /// The scoping key: a carrier's users see their own moves and no others.
+    /// Nullable because a move done by the company's own trucks belongs to no
+    /// external carrier — those are visible to internal staff only.
+    /// </remarks>
+    public Guid? CarrierId { get; set; }
+
+    public Organization? Carrier { get; set; }
+
+    /// <summary>The driver assigned. Scopes a Driver user to their own jobs.</summary>
+    public Guid? DriverId { get; set; }
+
+    public AppUser? Driver { get; set; }
 
     /// <summary>When the move is booked for. A timestamp, not a label.</summary>
     public DateTimeOffset ScheduledFor { get; set; }
