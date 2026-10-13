@@ -33,7 +33,11 @@ public sealed record RequestDto(
     IReadOnlyList<RequestCheckDto> Checks,
     /// What the workflow will currently permit — lets a client disable
     /// impossible actions instead of discovering the refusal on click.
-    IReadOnlyList<string> AvailableActions);
+    IReadOnlyList<string> AvailableActions,
+    /// When delivery was received — the start of its inspection.
+    DateTimeOffset? ReceivedAt,
+    /// When it passed inspection and became ready to use.
+    DateTimeOffset? ReadyAt);
 
 /// <summary>
 /// Note the absence of Status and Stage.

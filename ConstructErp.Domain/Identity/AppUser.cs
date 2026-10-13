@@ -21,7 +21,10 @@ namespace ConstructErp.Domain.Identity;
 /// </remarks>
 public sealed class AppUser : Entity
 {
-    /// <summary>Lowercased on save; the login identifier and unique key.</summary>
+    /// <summary>Lowercased; unique. Either it or the email signs in.</summary>
+    public string UserName { get; set; } = string.Empty;
+
+    /// <summary>Lowercased on save; unique, and also accepted at sign-in.</summary>
     public string Email { get; set; } = string.Empty;
 
     public string PasswordHash { get; set; } = string.Empty;

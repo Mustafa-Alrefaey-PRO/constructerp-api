@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using ConstructErp.Application.Identity;
+using ConstructErp.Domain.Identity;
+using ConstructErp.Infrastructure.Identity;
 
 namespace ConstructErp.Tests;
 
@@ -169,5 +171,91 @@ public sealed class AuthEndpointTests(ApiFactory factory)
             // must not hand over working credentials.
             Assert.DoesNotContain(auth.RefreshToken, stored);
         });
+    }
+
+    [Theory]
+    [InlineData("admin")]
+    [InlineData("  ADMIN ")]
+    public async Task Login_accepts_the_username_in_any_case(string login)
+    {
+        var (_, password) = factory.Credentials("AdminEmail", "AdminPassword");
+
+        var response = await factory.AnonymousClient()
+            .PostAsJsonAsync("/api/auth/login", new LoginRequest(login, password), Json);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var auth = (await response.Content.ReadFromJsonAsync<AuthResultDto>(Json))!;
+        Assert.Equal("admin", auth.User.UserName);
+    }
+
+    [Fact]
+    public async Task Changing_the_password_needs_the_current_one_and_ends_other_sessions()
+    {
+        // A throwaway account, so the shared seed users keep their passwords.
+        var userName = $"pw{Guid.NewGuid():N}"[..20];
+        await factory.WithDbAsync(async db =>
+        {
+            var user = new AppUser
+            {
+                UserName = userName,
+                Email = $"{userName}@constructerp.local",
+                DisplayName = "Password Tester",
+                Role = UserRole.Admin,
+            };
+            user.PasswordHash = PasswordHashing.Hash(user, "Original1");
+            db.Users.Add(user);
+            await db.SaveChangesAsync();
+        });
+
+        var anonymous = factory.AnonymousClient();
+        var first = (await (await anonymous.PostAsJsonAsync(
+            "/api/auth/login", new LoginRequest(userName, "Original1"), Json))
+            .Content.ReadFromJsonAsync<AuthResultDto>(Json))!;
+
+        var client = factory.AnonymousClient();
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", first.AccessToken);
+
+        async Task<HttpResponseMessage> Change(string current, string next) =>
+            await client.PostAsJsonAsync(
+                "/api/auth/change-password", new ChangePasswordRequest(current, next), Json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await Change("wrong-one", "Replaced22")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Change("Original1", "short1")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Change("Original1", "lettersonly")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Change("Original1", "Original1")).StatusCode);
+
+        var changed = await Change("Original1", "Replaced22");
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        var fresh = (await changed.Content.ReadFromJsonAsync<AuthResultDto>(Json))!;
+        Assert.False(string.IsNullOrWhiteSpace(fresh.RefreshToken));
+
+        // The old password is dead, the new one works, and the session from
+        // before the change can no longer be extended.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsJsonAsync(
+            "/api/auth/login", new LoginRequest(userName, "Original1"), Json)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await anonymous.PostAsJsonAsync(
+            "/api/auth/login", new LoginRequest(userName, "Replaced22"), Json)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.PostAsJsonAsync(
+            "/api/auth/refresh", new RefreshRequest(first.RefreshToken), Json)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Changing_the_password_requires_sign_in()
+    {
+        var response = await factory.AnonymousClient().PostAsJsonAsync(
+            "/api/auth/change-password", new ChangePasswordRequest("a", "Replaced22"), Json);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("admin@constructerp.local", "admin")]
+    [InlineData("Y.Kamal+site@x.com", "y.kamalsite")]
+    [InlineData("ab@x.com", "user.ab")]
+    public void Usernames_come_from_the_email_when_not_chosen(string email, string expected)
+    {
+        Assert.Equal(expected, UserNames.FromEmail(email));
+        Assert.True(UserNames.IsValid(expected));
     }
 }

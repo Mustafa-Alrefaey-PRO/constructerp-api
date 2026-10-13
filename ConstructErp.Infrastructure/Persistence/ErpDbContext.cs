@@ -315,8 +315,10 @@ public sealed class ErpDbContext(DbContextOptions<ErpDbContext> options, ICurren
 
         builder.Entity<AppUser>(user =>
         {
-            // Unique on email: it is the login identifier. Stored lowercased,
-            // so the uniqueness check cannot be sidestepped by capitalisation.
+            // Unique on username and on email: either one signs in. Both are
+            // stored lowercased, so capitalisation cannot sidestep uniqueness.
+            user.HasIndex(u => u.UserName).IsUnique();
+            user.Property(u => u.UserName).HasMaxLength(UserNames.MaxLength);
             user.HasIndex(u => u.Email).IsUnique();
             user.Property(u => u.Email).HasMaxLength(256);
             user.Property(u => u.DisplayName).HasMaxLength(128);

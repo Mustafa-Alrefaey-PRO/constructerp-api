@@ -48,11 +48,14 @@ public sealed class RequestEndpointTests(ApiFactory factory)
         request = await PassAllAsync(client, request, "PreReceiving");
         request = await PostAsync(client, $"/api/requests/{request.Id}/receive");
         Assert.Equal("Received", request.Status);
+        Assert.NotNull(request.ReceivedAt);
+        Assert.Null(request.ReadyAt);
 
         request = await PostAsync(client, $"/api/requests/{request.Id}/inspect",
             new InspectRequest(true, null));
         Assert.Equal("Ready to Use", request.Status);
         Assert.Equal("Inspection", request.Stage);
+        Assert.NotNull(request.ReadyAt);
     }
 
     [Fact]

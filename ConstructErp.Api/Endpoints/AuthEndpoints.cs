@@ -41,12 +41,14 @@ public static class AuthEndpoints
         group.MapPost("/refresh", Refresh).WithName("RefreshToken").AllowAnonymous();
         group.MapPost("/logout", Logout).WithName("Logout").RequireAuthorization();
         group.MapGet("/me", Me).WithName("Me").RequireAuthorization();
+        group.MapPost("/change-password", ChangePassword).WithName("ChangePassword")
+            .RequireAuthorization();
 
         return group;
     }
 
     /// <summary>
-    /// Exchanges an email and password for a token pair.
+    /// Exchanges a username (or email) and password for a token pair.
     /// </summary>
     /// <remarks>
     /// Every failure returns the same message. Saying "no such user" versus
@@ -65,11 +67,13 @@ public static class AuthEndpoints
         CancellationToken ct)
     {
         var now = clock.GetUtcNow();
-        var email = body.Email?.Trim().ToLowerInvariant() ?? string.Empty;
+        var login = body.Login?.Trim().ToLowerInvariant() ?? string.Empty;
 
+        // An "@" can only be an email: usernames are not allowed to contain one.
+        var byEmail = login.Contains('@');
         var user = await db.Users
             .Include(u => u.Organization)
-            .FirstOrDefaultAsync(u => u.Email == email, ct);
+            .FirstOrDefaultAsync(u => byEmail ? u.Email == login : u.UserName == login, ct);
 
         if (user is null || !user.IsActive)
         {
@@ -180,6 +184,95 @@ public static class AuthEndpoints
         return Results.NoContent();
     }
 
+    /// <summary>
+    /// Changes the signed-in user's password.
+    /// </summary>
+    /// <remarks>
+    /// The current password is required even though the caller holds a valid
+    /// token: a session left open on a shared machine must not be enough to
+    /// take the account over. Wrong guesses count toward the same lockout as
+    /// sign-in. On success every refresh token is revoked — any other session
+    /// ends — and this session gets a fresh pair so it carries on.
+    /// </remarks>
+    private static async Task<IResult> ChangePassword(
+        ChangePasswordRequest body,
+        ErpDbContext db,
+        ICurrentUser currentUser,
+        TokenService tokens,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        if (currentUser.UserId is not { } userId)
+        {
+            return Results.Unauthorized();
+        }
+
+        var now = clock.GetUtcNow();
+        var user = await db.Users
+            .Include(u => u.Organization)
+            .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive, ct);
+
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (user.IsLockedOut(now))
+        {
+            return Results.Problem(
+                title: "Account temporarily locked.",
+                detail: "Too many failed attempts. Try again shortly.",
+                statusCode: StatusCodes.Status423Locked);
+        }
+
+        if (PasswordHashing.Verify(user, body.CurrentPassword ?? string.Empty)
+            == PasswordVerificationResult.Failed)
+        {
+            user.FailedAttempts++;
+
+            if (user.FailedAttempts >= MaxFailedAttempts)
+            {
+                user.LockedUntil = now.AddMinutes(LockoutMinutes);
+                user.FailedAttempts = 0;
+            }
+
+            await db.SaveChangesAsync(ct);
+
+            return Results.ValidationProblem(
+                new Dictionary<string, string[]>
+                {
+                    ["currentPassword"] = ["The current password is incorrect."],
+                },
+                title: "The current password is incorrect.");
+        }
+
+        if (PasswordPolicy.Check(body.NewPassword) is { } reason)
+        {
+            return Results.ValidationProblem(
+                new Dictionary<string, string[]> { ["newPassword"] = [reason] },
+                title: reason);
+        }
+
+        if (body.NewPassword == body.CurrentPassword)
+        {
+            const string same = "The new password must be different from the current one.";
+
+            return Results.ValidationProblem(
+                new Dictionary<string, string[]> { ["newPassword"] = [same] },
+                title: same);
+        }
+
+        user.PasswordHash = PasswordHashing.Hash(user, body.NewPassword);
+        user.FailedAttempts = 0;
+        user.LockedUntil = null;
+
+        await db.RefreshTokens
+            .Where(t => t.UserId == userId && t.RevokedAt == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAt, now), ct);
+
+        return Results.Ok(await IssueAsync(user, db, tokens, ct));
+    }
+
     private static async Task<IResult> Me(
         ErpDbContext db, ICurrentUser currentUser, CancellationToken ct)
     {
@@ -209,6 +302,7 @@ public static class AuthEndpoints
 
     private static CurrentUserDto Describe(AppUser user) => new(
         user.Id,
+        user.UserName,
         user.Email,
         user.DisplayName,
         user.Role.ToString(),
@@ -218,6 +312,6 @@ public static class AuthEndpoints
             : new LocalizedTextDto(user.Organization.Name.En, user.Organization.Name.Ar));
 
     private static IResult InvalidCredentials() => Results.Problem(
-        title: "Invalid email or password.",
+        title: "Invalid username or password.",
         statusCode: StatusCodes.Status401Unauthorized);
 }

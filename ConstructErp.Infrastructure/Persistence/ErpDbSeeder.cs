@@ -158,6 +158,7 @@ public sealed class ErpDbSeeder(
 
             var user = new AppUser
             {
+                UserName = UserNames.FromEmail(email),
                 Email = email,
                 DisplayName = name,
                 Role = role,

@@ -352,7 +352,9 @@ public static class RequestEndpoints
                 check.Passed,
                 check.Sequence))
             .ToList(),
-        AvailableActions(request));
+        AvailableActions(request),
+        request.ReceivedAt,
+        request.ReadyAt);
 
     /// <summary>What the workflow would currently permit, for the client's UI.</summary>
     private static IReadOnlyList<string> AvailableActions(EquipmentRequest request)

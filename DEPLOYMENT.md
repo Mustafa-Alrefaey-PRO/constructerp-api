@@ -11,8 +11,9 @@ Two pieces live in two repositories:
 
 **GitHub Pages cannot host the API.** It serves static files only — no .NET
 process, no database. That is why the API needs somewhere else to live, and
-why the frontend is built so it works without one: with no API configured it
-runs on seed data and skips sign-in entirely, which is the public demo.
+why it needs somewhere else to live. The frontend has no offline or demo
+mode: every screen reads from and saves to this API, so it cannot be
+published until the API is deployed.
 
 ---
 
@@ -124,8 +125,8 @@ It must be `https`. GitHub Pages is served over https, and a browser blocks a
 plain-http request from an https page as mixed content — the site would look
 fine while every request silently failed.
 
-Leave the variable unset and the published site stays the self-contained demo:
-seed data, no sign-in, nothing to break.
+The Pages workflow refuses to build without it (or with a non-https value),
+because the app saves everything through the API and would be unusable.
 
 Re-run the Pages workflow after setting it. The value is baked in at build
 time, so changing it needs a rebuild, not a restart.
