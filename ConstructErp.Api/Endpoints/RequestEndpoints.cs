@@ -202,7 +202,7 @@ public static class RequestEndpoints
 
         if (!guard.Allowed)
         {
-            return Results.Conflict(new { error = guard.Reason });
+            return Results.Conflict(new { error = guard.Reason, code = guard.Code });
         }
 
         // A failed inspection does not send the asset back to the start; it
@@ -241,7 +241,7 @@ public static class RequestEndpoints
         {
             // 409, not 400: the payload is fine, the request is in the wrong
             // state for this action.
-            return Results.Conflict(new { error = result.Reason });
+            return Results.Conflict(new { error = result.Reason, code = result.Code });
         }
 
         mutate?.Invoke(request);

@@ -114,7 +114,7 @@ public static class EquipmentEndpoints
 
             if (!guard.Allowed)
             {
-                return Results.Conflict(new { error = guard.Reason });
+                return Results.Conflict(new { error = guard.Reason, code = guard.Code });
             }
         }
 

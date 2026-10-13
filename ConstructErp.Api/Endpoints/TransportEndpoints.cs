@@ -191,7 +191,7 @@ public static class TransportEndpoints
 
         if (!decision.Allowed)
         {
-            return Results.Conflict(new { error = decision.Reason });
+            return Results.Conflict(new { error = decision.Reason, code = decision.Code });
         }
 
         record(move, body?.OccurredAt ?? clock.GetUtcNow());

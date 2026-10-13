@@ -77,7 +77,9 @@ first account. Set these two for the first deploy only:
 | `Seed__AdminPassword` | a strong password you will change |
 
 On startup the API creates that one administrator (and the internal
-organization) if no such user exists. It does **not** seed demo projects,
+organization) if no such user exists. Their username is the part of the email
+before the "@" (e.g. `you` for `you@example.com`); either signs in, and both
+can be changed afterwards from the account menu's Edit profile. It does **not** seed demo projects,
 equipment or the carrier accounts — those are Development only.
 
 **Delete both settings once you have signed in.** They are not needed again,
@@ -141,7 +143,7 @@ curl https://constructerp-api.azurewebsites.net/health
 
 curl -X POST https://constructerp-api.azurewebsites.net/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"<the seeded password>"}'
+  -d '{"login":"you@example.com","password":"<the seeded password>"}'
 # a token pair
 ```
 

@@ -1,11 +1,15 @@
 namespace ConstructErp.Domain.Requests;
 
 /// <summary>The outcome of attempting a transition.</summary>
-public readonly record struct TransitionResult(bool Allowed, string? Reason)
+/// <remarks>
+/// <c>Code</c> is the stable, never-renamed key clients translate; <c>Reason</c>
+/// is the English fallback. Refusals gain codes one by one.
+/// </remarks>
+public readonly record struct TransitionResult(bool Allowed, string? Reason, string? Code = null)
 {
     public static TransitionResult Ok() => new(true, null);
 
-    public static TransitionResult Refuse(string reason) => new(false, reason);
+    public static TransitionResult Refuse(string reason, string? code = null) => new(false, reason, code);
 }
 
 /// <summary>
@@ -97,7 +101,8 @@ public static class RequestWorkflow
             ? TransitionResult.Ok()
             : TransitionResult.Refuse(
                 "Equipment cannot be set to Working without a request that has been approved, "
-                + "received and passed pre-use inspection.");
+                + "received and passed pre-use inspection.",
+                "equipmentNotReady");
     }
 
     /// <summary>Applies a transition. Call only after the matching guard passes.</summary>

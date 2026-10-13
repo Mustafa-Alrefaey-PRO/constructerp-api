@@ -27,6 +27,20 @@ demo data, then listens on the URL printed in the console. `GET /health` returns
 Connection string lives in `ConstructErp.Api/appsettings.Development.json` and points
 at `ConstructErp.Dev` on `localhost`.
 
+## Accounts
+
+Users sign in with a **username or email** (`POST /api/auth/login` with
+`{ "login", "password" }`; an "@" means email). Usernames are 3–32 lowercase
+letters, digits, `.`, `_` or `-`, unique, and default to the part of the email
+before the "@". Signed-in users can `PUT /api/auth/me` (display name,
+username, email — never their own role or organization) and
+`POST /api/auth/change-password` (current password required, 8+ characters
+with a letter and a digit; other sessions are revoked and the response carries
+a fresh token pair). Wrong current passwords count toward the login lockout.
+
+Development seed accounts: `admin`, `office` (trucking company) and `driver`;
+passwords are in the `Seed` section of `appsettings.Development.json`.
+
 ## Migrations
 
 ```bash
