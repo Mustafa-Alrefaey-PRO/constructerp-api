@@ -1,3 +1,4 @@
+using ConstructErp.Domain.Common;
 using ConstructErp.Application.Common;
 using ConstructErp.Application.Rentals;
 using ConstructErp.Domain.Rentals;
@@ -97,10 +98,7 @@ public static class VendorEndpoints
         // orphan it, so the caller has to deal with the rentals first.
         if (await db.Rentals.AnyAsync(r => r.VendorId == id, ct))
         {
-            return Results.Conflict(new
-            {
-                error = "This vendor has rentals recorded against it and cannot be removed.",
-            });
+            return ApiErrors.Conflict(ErrorCodes.VendorHasRentals, "This vendor has rentals recorded against it and cannot be removed.");
         }
 
         vendor.DeletedAt = DateTimeOffset.UtcNow;
@@ -114,19 +112,19 @@ public static class VendorEndpoints
     {
         if (string.IsNullOrWhiteSpace(body.Code))
         {
-            return Results.BadRequest(new { error = "Code is required." });
+            return ApiErrors.BadRequest(ErrorCodes.CodeRequired, "Code is required.");
         }
 
         if (string.IsNullOrWhiteSpace(body.Name.En))
         {
-            return Results.BadRequest(new { error = "An English name is required." });
+            return ApiErrors.BadRequest(ErrorCodes.EnglishNameRequired, "An English name is required.");
         }
 
         var clash = await db.Vendors.AnyAsync(
             v => v.Code == body.Code && (id == null || v.Id != id), ct);
 
         return clash
-            ? Results.Conflict(new { error = $"Vendor code {body.Code} is already in use." })
+            ? ApiErrors.Conflict(ErrorCodes.CodeInUse, $"Vendor code {body.Code} is already in use.", ApiErrors.Args(("code", body.Code)))
             : null;
     }
 

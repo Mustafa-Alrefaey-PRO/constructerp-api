@@ -1,3 +1,4 @@
+using ConstructErp.Domain.Common;
 using ConstructErp.Application.Common;
 using ConstructErp.Application.Transport;
 using ConstructErp.Domain.Requests;
@@ -191,7 +192,7 @@ public static class TransportEndpoints
 
         if (!decision.Allowed)
         {
-            return Results.Conflict(new { error = decision.Reason, code = decision.Code });
+            return ApiErrors.Refused(decision);
         }
 
         record(move, body?.OccurredAt ?? clock.GetUtcNow());
@@ -224,23 +225,23 @@ public static class TransportEndpoints
     {
         if (string.IsNullOrWhiteSpace(body.Code))
         {
-            return Results.BadRequest(new { error = "Code is required." });
+            return ApiErrors.BadRequest(ErrorCodes.CodeRequired, "Code is required.");
         }
 
         if (body.Cost < 0)
         {
-            return Results.BadRequest(new { error = "Cost cannot be negative." });
+            return ApiErrors.BadRequest(ErrorCodes.NegativeAmount, "Cost cannot be negative.");
         }
 
         if (!await db.Equipment.AnyAsync(e => e.Id == body.EquipmentId, ct))
         {
-            return Results.BadRequest(new { error = "Unknown equipment." });
+            return ApiErrors.BadRequest(ErrorCodes.UnknownEquipment, "Unknown equipment.");
         }
 
         if (body.ProjectId is { } projectId
             && !await db.Projects.AnyAsync(p => p.Id == projectId, ct))
         {
-            return Results.BadRequest(new { error = "Unknown project." });
+            return ApiErrors.BadRequest(ErrorCodes.UnknownProject, "Unknown project.");
         }
 
         TransportKind kind;
@@ -251,13 +252,13 @@ public static class TransportEndpoints
         }
         catch (ArgumentOutOfRangeException ex)
         {
-            return Results.BadRequest(new { error = ex.Message });
+            return ApiErrors.BadRequest(ErrorCodes.InvalidValue, ex.Message);
         }
 
         if (await db.TransportMoves.AnyAsync(
                 m => m.Code == body.Code && (id == null || m.Id != id), ct))
         {
-            return Results.Conflict(new { error = $"Move code {body.Code} is already in use." });
+            return ApiErrors.Conflict(ErrorCodes.CodeInUse, $"Move code {body.Code} is already in use.", ApiErrors.Args(("code", body.Code)));
         }
 
         // No status assignment here, deliberately: there is nowhere for a

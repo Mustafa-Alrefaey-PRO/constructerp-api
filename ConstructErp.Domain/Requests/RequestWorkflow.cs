@@ -1,15 +1,23 @@
+using ConstructErp.Domain.Common;
+
 namespace ConstructErp.Domain.Requests;
 
 /// <summary>The outcome of attempting a transition.</summary>
 /// <remarks>
-/// <c>Code</c> is the stable, never-renamed key clients translate; <c>Reason</c>
-/// is the English fallback. Refusals gain codes one by one.
+/// <c>Code</c> is the stable key clients translate (see <see cref="Common.ErrorCodes"/>);
+/// <c>Reason</c> is the English fallback; <c>Params</c> fill the translated message.
 /// </remarks>
-public readonly record struct TransitionResult(bool Allowed, string? Reason, string? Code = null)
+public readonly record struct TransitionResult(
+    bool Allowed,
+    string? Reason,
+    string? Code = null,
+    IReadOnlyDictionary<string, string>? Params = null)
 {
     public static TransitionResult Ok() => new(true, null);
 
-    public static TransitionResult Refuse(string reason, string? code = null) => new(false, reason, code);
+    public static TransitionResult Refuse(
+        string reason, string code, IReadOnlyDictionary<string, string>? args = null) =>
+        new(false, reason, code, args);
 }
 
 /// <summary>
@@ -37,13 +45,16 @@ public static class RequestWorkflow
         if (request.Status is not (RequestStatus.Draft or RequestStatus.Rejected))
         {
             return TransitionResult.Refuse(
-                $"Only a draft or rejected request can be submitted; this one is {request.Status}.");
+                $"Only a draft or rejected request can be submitted; this one is {request.Status}.",
+                ErrorCodes.SubmitNotAllowed,
+                new Dictionary<string, string> { ["status"] = request.Status.ToString() });
         }
 
         if (!request.AllPassed(CheckKind.PreRequest))
         {
             return TransitionResult.Refuse(
-                "Every pre-request check must pass before the request can be submitted.");
+                "Every pre-request check must pass before the request can be submitted.",
+                ErrorCodes.PreRequestChecksIncomplete);
         }
 
         return TransitionResult.Ok();
@@ -53,26 +64,33 @@ public static class RequestWorkflow
         request.Status is RequestStatus.Submitted
             ? TransitionResult.Ok()
             : TransitionResult.Refuse(
-                $"Only a submitted request can be approved; this one is {request.Status}.");
+                $"Only a submitted request can be approved; this one is {request.Status}.",
+                ErrorCodes.ApproveNotAllowed,
+                new Dictionary<string, string> { ["status"] = request.Status.ToString() });
 
     public static TransitionResult CanReject(EquipmentRequest request) =>
         request.Status is RequestStatus.Submitted
             ? TransitionResult.Ok()
             : TransitionResult.Refuse(
-                $"Only a submitted request can be rejected; this one is {request.Status}.");
+                $"Only a submitted request can be rejected; this one is {request.Status}.",
+                ErrorCodes.RejectNotAllowed,
+                new Dictionary<string, string> { ["status"] = request.Status.ToString() });
 
     public static TransitionResult CanReceive(EquipmentRequest request)
     {
         if (request.Status is not RequestStatus.Approved)
         {
             return TransitionResult.Refuse(
-                $"Delivery can only be received against an approved request; this one is {request.Status}.");
+                $"Delivery can only be received against an approved request; this one is {request.Status}.",
+                ErrorCodes.ReceiveNotAllowed,
+                new Dictionary<string, string> { ["status"] = request.Status.ToString() });
         }
 
         if (!request.AllPassed(CheckKind.PreReceiving))
         {
             return TransitionResult.Refuse(
-                "Every pre-receiving check must pass before delivery can be accepted.");
+                "Every pre-receiving check must pass before delivery can be accepted.",
+                ErrorCodes.PreReceivingChecksIncomplete);
         }
 
         return TransitionResult.Ok();
@@ -83,7 +101,9 @@ public static class RequestWorkflow
         request.Status is RequestStatus.Received or RequestStatus.InspectionPending
             ? TransitionResult.Ok()
             : TransitionResult.Refuse(
-                $"Inspection applies after delivery is received; this one is {request.Status}.");
+                $"Inspection applies after delivery is received; this one is {request.Status}.",
+                ErrorCodes.InspectNotAllowed,
+                new Dictionary<string, string> { ["status"] = request.Status.ToString() });
 
     /// <summary>
     /// Whether an asset may be put to work.
@@ -102,7 +122,7 @@ public static class RequestWorkflow
             : TransitionResult.Refuse(
                 "Equipment cannot be set to Working without a request that has been approved, "
                 + "received and passed pre-use inspection.",
-                "equipmentNotReady");
+                ErrorCodes.EquipmentNotReady);
     }
 
     /// <summary>Applies a transition. Call only after the matching guard passes.</summary>

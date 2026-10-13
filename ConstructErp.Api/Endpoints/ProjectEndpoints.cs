@@ -1,3 +1,4 @@
+using ConstructErp.Domain.Common;
 using ConstructErp.Application.Common;
 using ConstructErp.Application.Projects;
 using ConstructErp.Domain.Projects;
@@ -54,14 +55,14 @@ public static class ProjectEndpoints
         // unique index, so a check that cannot see it produces a 500 later.
         else if (await db.Projects.IgnoreQueryFilters().AnyAsync(p => p.Code == request.Code, ct))
         {
-            return Results.Conflict(new { error = $"Project code '{request.Code}' already exists." });
+            return ApiErrors.Conflict(ErrorCodes.CodeInUse, $"Project code '{request.Code}' already exists.", ApiErrors.Args(("code", request.Code)));
         }
 
         var project = new Domain.Projects.Project();
 
         if (!TryApply(request, project, out var error))
         {
-            return Results.BadRequest(new { error });
+            return ApiErrors.BadRequest(error!.Value.Code, error.Value.Message);
         }
 
         db.Projects.Add(project);
@@ -87,12 +88,12 @@ public static class ProjectEndpoints
         if (await db.Projects.IgnoreQueryFilters()
                 .AnyAsync(p => p.Code == request.Code && p.Id != id, ct))
         {
-            return Results.Conflict(new { error = $"Project code '{request.Code}' already exists." });
+            return ApiErrors.Conflict(ErrorCodes.CodeInUse, $"Project code '{request.Code}' already exists.", ApiErrors.Args(("code", request.Code)));
         }
 
         if (!TryApply(request, project, out var error))
         {
-            return Results.BadRequest(new { error });
+            return ApiErrors.BadRequest(error!.Value.Code, error.Value.Message);
         }
 
         await db.SaveChangesAsync(ct);
@@ -119,25 +120,25 @@ public static class ProjectEndpoints
     }
 
     private static bool TryApply(
-        SaveProjectRequest request, Domain.Projects.Project project, out string? error)
+        SaveProjectRequest request, Domain.Projects.Project project, out (string Code, string Message)? error)
     {
         error = null;
 
         if (string.IsNullOrWhiteSpace(request.Code))
         {
-            error = "Code is required.";
+            error = (ErrorCodes.CodeRequired, "Code is required.");
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(request.Name.En))
         {
-            error = "An English name is required.";
+            error = (ErrorCodes.EnglishNameRequired, "An English name is required.");
             return false;
         }
 
         if (request.Budget < 0)
         {
-            error = "Budget cannot be negative.";
+            error = (ErrorCodes.NegativeAmount, "Budget cannot be negative.");
             return false;
         }
 
@@ -149,7 +150,7 @@ public static class ProjectEndpoints
         }
         catch (ArgumentOutOfRangeException)
         {
-            error = $"Unknown status '{request.Status}'.";
+            error = (ErrorCodes.InvalidValue, $"Unknown status '{request.Status}'.");
             return false;
         }
 

@@ -41,6 +41,15 @@ a fresh token pair). Wrong current passwords count toward the login lockout.
 Development seed accounts: `admin`, `office` (trucking company) and `driver`;
 passwords are in the `Seed` section of `appsettings.Development.json`.
 
+## Errors
+
+Every refusal is `{ "error": "<English>", "code": "<stable code>", "params": {…} }`,
+built through `ApiErrors` with a code from `Domain/Common/ErrorCodes.cs`. Clients
+translate by code and fall back to `error`. Codes are permanent — add a new one
+rather than renaming — and each needs an English and Arabic entry in the
+frontend's `core/i18n/error-messages.ts` (a frontend spec checks the list).
+`ErrorContractTests` checks refusals carry their codes and that codes are unique.
+
 ## Migrations
 
 ```bash

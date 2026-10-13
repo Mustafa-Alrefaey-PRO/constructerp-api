@@ -1,3 +1,4 @@
+using ConstructErp.Domain.Common;
 using ConstructErp.Application.Common;
 using ConstructErp.Application.Equipment;
 using ConstructErp.Domain.Equipment;
@@ -57,7 +58,7 @@ public static class EquipmentEndpoints
         // IgnoreQueryFilters: a soft-deleted asset still holds its code.
         else if (await db.Equipment.IgnoreQueryFilters().AnyAsync(e => e.Code == request.Code, ct))
         {
-            return Results.Conflict(new { error = $"Equipment code '{request.Code}' already exists." });
+            return ApiErrors.Conflict(ErrorCodes.CodeInUse, $"Equipment code '{request.Code}' already exists.", ApiErrors.Args(("code", request.Code)));
         }
 
         var asset = new EquipmentAsset();
@@ -89,7 +90,7 @@ public static class EquipmentEndpoints
         if (await db.Equipment.IgnoreQueryFilters()
                 .AnyAsync(e => e.Code == request.Code && e.Id != id, ct))
         {
-            return Results.Conflict(new { error = $"Equipment code '{request.Code}' already exists." });
+            return ApiErrors.Conflict(ErrorCodes.CodeInUse, $"Equipment code '{request.Code}' already exists.", ApiErrors.Args(("code", request.Code)));
         }
 
         var wasWorking = asset.Status == EquipmentStatus.Working;
@@ -114,7 +115,7 @@ public static class EquipmentEndpoints
 
             if (!guard.Allowed)
             {
-                return Results.Conflict(new { error = guard.Reason, code = guard.Code });
+                return ApiErrors.Refused(guard);
             }
         }
 
@@ -144,22 +145,22 @@ public static class EquipmentEndpoints
     {
         if (string.IsNullOrWhiteSpace(request.Code))
         {
-            return Results.BadRequest(new { error = "Code is required." });
+            return ApiErrors.BadRequest(ErrorCodes.CodeRequired, "Code is required.");
         }
 
         if (string.IsNullOrWhiteSpace(request.Name.En))
         {
-            return Results.BadRequest(new { error = "An English name is required." });
+            return ApiErrors.BadRequest(ErrorCodes.EnglishNameRequired, "An English name is required.");
         }
 
         if (request.DailyCost < 0)
         {
-            return Results.BadRequest(new { error = "Daily cost cannot be negative." });
+            return ApiErrors.BadRequest(ErrorCodes.NegativeAmount, "Daily cost cannot be negative.");
         }
 
         if (!await db.EquipmentTypes.AnyAsync(t => t.Id == request.EquipmentTypeId, ct))
         {
-            return Results.BadRequest(new { error = "Unknown equipment type." });
+            return ApiErrors.BadRequest(ErrorCodes.UnknownEquipmentType, "Unknown equipment type.");
         }
 
         // Checked explicitly rather than letting the FK fail: a 400 naming the
@@ -167,7 +168,7 @@ public static class EquipmentEndpoints
         if (request.ProjectId is { } projectId
             && !await db.Projects.AnyAsync(p => p.Id == projectId, ct))
         {
-            return Results.BadRequest(new { error = "Unknown project." });
+            return ApiErrors.BadRequest(ErrorCodes.UnknownProject, "Unknown project.");
         }
 
         Ownership ownership;
@@ -180,7 +181,7 @@ public static class EquipmentEndpoints
         }
         catch (ArgumentOutOfRangeException ex)
         {
-            return Results.BadRequest(new { error = ex.Message });
+            return ApiErrors.BadRequest(ErrorCodes.InvalidValue, ex.Message);
         }
 
         asset.Code = request.Code.Trim();

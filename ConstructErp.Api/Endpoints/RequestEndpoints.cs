@@ -54,7 +54,7 @@ public static class RequestEndpoints
         }
         else if (await CodeTakenAsync(db, body.Code, null, ct))
         {
-            return Results.Conflict(new { error = $"Request code '{body.Code}' already exists." });
+            return ApiErrors.Conflict(ErrorCodes.CodeInUse, $"Request code '{body.Code}' already exists.", ApiErrors.Args(("code", body.Code)));
         }
 
         var request = new EquipmentRequest();
@@ -94,16 +94,16 @@ public static class RequestEndpoints
         // cost of an approved request would invalidate the approval.
         if (request.Status is not (RequestStatus.Draft or RequestStatus.Rejected))
         {
-            return Results.Conflict(new
-            {
-                error = $"A {request.Status} request cannot be edited. "
+            return ApiErrors.Conflict(
+                ErrorCodes.RequestLocked,
+                $"A {request.Status} request cannot be edited. "
                     + "Only a draft or rejected request may change.",
-            });
+                ApiErrors.Args(("status", request.Status.ToString())));
         }
 
         if (await CodeTakenAsync(db, body.Code, id, ct))
         {
-            return Results.Conflict(new { error = $"Request code '{body.Code}' already exists." });
+            return ApiErrors.Conflict(ErrorCodes.CodeInUse, $"Request code '{body.Code}' already exists.", ApiErrors.Args(("code", body.Code)));
         }
 
         var failure = await ApplyAsync(body, request, db, ct);
@@ -153,10 +153,10 @@ public static class RequestEndpoints
 
         if (locked)
         {
-            return Results.Conflict(new
-            {
-                error = $"This checklist can no longer be changed; the request is {request.Status}.",
-            });
+            return ApiErrors.Conflict(
+                ErrorCodes.ChecklistLocked,
+                $"This checklist can no longer be changed; the request is {request.Status}.",
+                ApiErrors.Args(("status", request.Status.ToString())));
         }
 
         check.Passed = body.Passed;
@@ -181,7 +181,7 @@ public static class RequestEndpoints
         {
             // A rejection without a reason is not actionable by whoever has to
             // fix and resubmit it.
-            return Results.BadRequest(new { error = "A rejection reason is required." });
+            return ApiErrors.BadRequest(ErrorCodes.RejectionReasonRequired, "A rejection reason is required.");
         }
 
         return await Transition(id, db, ct, RequestWorkflow.CanReject, RequestStatus.Rejected,
@@ -202,7 +202,7 @@ public static class RequestEndpoints
 
         if (!guard.Allowed)
         {
-            return Results.Conflict(new { error = guard.Reason, code = guard.Code });
+            return ApiErrors.Refused(guard);
         }
 
         // A failed inspection does not send the asset back to the start; it
@@ -241,7 +241,7 @@ public static class RequestEndpoints
         {
             // 409, not 400: the payload is fine, the request is in the wrong
             // state for this action.
-            return Results.Conflict(new { error = result.Reason, code = result.Code });
+            return ApiErrors.Refused(result);
         }
 
         mutate?.Invoke(request);
@@ -256,29 +256,29 @@ public static class RequestEndpoints
     {
         if (string.IsNullOrWhiteSpace(body.Code))
         {
-            return Results.BadRequest(new { error = "Code is required." });
+            return ApiErrors.BadRequest(ErrorCodes.CodeRequired, "Code is required.");
         }
 
         if (body.EstimatedCost < 0)
         {
-            return Results.BadRequest(new { error = "Estimated cost cannot be negative." });
+            return ApiErrors.BadRequest(ErrorCodes.NegativeAmount, "Estimated cost cannot be negative.");
         }
 
         if (body.RequiredDate is { } required && body.ReturnDate is { } ret && ret < required)
         {
             // Only possible to check because these are real dates now.
-            return Results.BadRequest(new { error = "Return date cannot be before the required date." });
+            return ApiErrors.BadRequest(ErrorCodes.ReturnBeforeRequired, "Return date cannot be before the required date.");
         }
 
         if (!await db.Equipment.AnyAsync(e => e.Id == body.EquipmentId, ct))
         {
-            return Results.BadRequest(new { error = "Unknown equipment." });
+            return ApiErrors.BadRequest(ErrorCodes.UnknownEquipment, "Unknown equipment.");
         }
 
         if (body.ProjectId is { } projectId
             && !await db.Projects.AnyAsync(p => p.Id == projectId, ct))
         {
-            return Results.BadRequest(new { error = "Unknown project." });
+            return ApiErrors.BadRequest(ErrorCodes.UnknownProject, "Unknown project.");
         }
 
         Ownership ownership;
@@ -289,7 +289,7 @@ public static class RequestEndpoints
         }
         catch (ArgumentOutOfRangeException ex)
         {
-            return Results.BadRequest(new { error = ex.Message });
+            return ApiErrors.BadRequest(ErrorCodes.InvalidValue, ex.Message);
         }
 
         request.Code = body.Code.Trim();

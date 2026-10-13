@@ -1,3 +1,4 @@
+using ConstructErp.Domain.Common;
 using ConstructErp.Domain.Requests;
 
 namespace ConstructErp.Domain.Transport;
@@ -84,62 +85,60 @@ public static class TransportSchedule
     {
         if (move.CancelledAt is not null)
         {
-            return TransitionResult.Refuse("A cancelled move cannot be approved.");
+            return TransitionResult.Refuse("A cancelled move cannot be approved.", ErrorCodes.MoveCancelled);
         }
 
         return move.ApprovedAt is null
             ? TransitionResult.Ok()
-            : TransitionResult.Refuse("This move has already been approved.");
+            : TransitionResult.Refuse("This move has already been approved.", ErrorCodes.MoveAlreadyApproved);
     }
 
     public static TransitionResult CanDepart(TransportMove move)
     {
         if (move.CancelledAt is not null)
         {
-            return TransitionResult.Refuse("A cancelled move cannot depart.");
+            return TransitionResult.Refuse("A cancelled move cannot depart.", ErrorCodes.MoveCancelled);
         }
 
         if (move.ApprovedAt is null)
         {
             // The gate the status field used to merely describe.
-            return TransitionResult.Refuse(
-                "A move cannot depart before it has been approved.");
+            return TransitionResult.Refuse("A move cannot depart before it has been approved.", ErrorCodes.MoveNotApproved);
         }
 
         return move.DepartedAt is null
             ? TransitionResult.Ok()
-            : TransitionResult.Refuse("This move has already departed.");
+            : TransitionResult.Refuse("This move has already departed.", ErrorCodes.MoveAlreadyDeparted);
     }
 
     public static TransitionResult CanArrive(TransportMove move)
     {
         if (move.CancelledAt is not null)
         {
-            return TransitionResult.Refuse("A cancelled move cannot arrive.");
+            return TransitionResult.Refuse("A cancelled move cannot arrive.", ErrorCodes.MoveCancelled);
         }
 
         if (move.DepartedAt is null)
         {
-            return TransitionResult.Refuse(
-                "Arrival can only be recorded against a move that has departed.");
+            return TransitionResult.Refuse("Arrival can only be recorded against a move that has departed.", ErrorCodes.MoveNotDeparted);
         }
 
         return move.ArrivedAt is null
             ? TransitionResult.Ok()
-            : TransitionResult.Refuse("This move has already arrived.");
+            : TransitionResult.Refuse("This move has already arrived.", ErrorCodes.MoveAlreadyArrived);
     }
 
     public static TransitionResult CanCancel(TransportMove move)
     {
         if (move.CancelledAt is not null)
         {
-            return TransitionResult.Refuse("This move is already cancelled.");
+            return TransitionResult.Refuse("This move is already cancelled.", ErrorCodes.MoveAlreadyCancelled);
         }
 
         // A completed move is history. Cancelling it would erase the record
         // that an asset actually moved, which other records depend on.
         return move.ArrivedAt is null
             ? TransitionResult.Ok()
-            : TransitionResult.Refuse("A completed move cannot be cancelled.");
+            : TransitionResult.Refuse("A completed move cannot be cancelled.", ErrorCodes.MoveCompleted);
     }
 }

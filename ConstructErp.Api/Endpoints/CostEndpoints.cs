@@ -105,12 +105,12 @@ public static class CostEndpoints
         {
             // Negative spend is a credit note, which is a different record with
             // its own rules — not something to sneak through this endpoint.
-            return Results.BadRequest(new { error = "Amount cannot be negative." });
+            return ApiErrors.BadRequest(ErrorCodes.NegativeAmount, "Amount cannot be negative.");
         }
 
         if (!await db.Projects.AnyAsync(p => p.Id == body.ProjectId, ct))
         {
-            return Results.BadRequest(new { error = "Unknown project." });
+            return ApiErrors.BadRequest(ErrorCodes.UnknownProject, "Unknown project.");
         }
 
         CostCategory category;
@@ -121,7 +121,7 @@ public static class CostEndpoints
         }
         catch (ArgumentOutOfRangeException ex)
         {
-            return Results.BadRequest(new { error = ex.Message });
+            return ApiErrors.BadRequest(ErrorCodes.InvalidValue, ex.Message);
         }
 
         entry.ProjectId = body.ProjectId;

@@ -1,3 +1,4 @@
+using ConstructErp.Domain.Common;
 using ConstructErp.Application.Common;
 using ConstructErp.Application.Rentals;
 using ConstructErp.Domain.Rentals;
@@ -156,20 +157,14 @@ public static class RentalEndpoints
 
         if (rental.ReturnedOn is not null)
         {
-            return Results.Conflict(new
-            {
-                error = "This rental has already been returned.",
-            });
+            return ApiErrors.Conflict(ErrorCodes.RentalAlreadyReturned, "This rental has already been returned.");
         }
 
         var bookedOn = body?.BookedOn ?? BusinessCalendar.Today(clock);
 
         if (bookedOn < rental.StartedOn)
         {
-            return Results.BadRequest(new
-            {
-                error = "A return cannot be booked before the hire started.",
-            });
+            return ApiErrors.BadRequest(ErrorCodes.HireNotStarted, "A return cannot be booked before the hire started.");
         }
 
         rental.ReturnBookedOn = bookedOn;
@@ -194,20 +189,14 @@ public static class RentalEndpoints
 
         if (rental.ReturnedOn is not null)
         {
-            return Results.Conflict(new
-            {
-                error = "This rental has already been returned.",
-            });
+            return ApiErrors.Conflict(ErrorCodes.RentalAlreadyReturned, "This rental has already been returned.");
         }
 
         var returnedOn = body?.ReturnedOn ?? BusinessCalendar.Today(clock);
 
         if (returnedOn < rental.StartedOn)
         {
-            return Results.BadRequest(new
-            {
-                error = "A return cannot be recorded before the hire started.",
-            });
+            return ApiErrors.BadRequest(ErrorCodes.HireNotStarted, "A return cannot be recorded before the hire started.");
         }
 
         rental.ReturnedOn = returnedOn;
@@ -236,43 +225,40 @@ public static class RentalEndpoints
     {
         if (string.IsNullOrWhiteSpace(body.Code))
         {
-            return Results.BadRequest(new { error = "Code is required." });
+            return ApiErrors.BadRequest(ErrorCodes.CodeRequired, "Code is required.");
         }
 
         if (body.Amount < 0)
         {
-            return Results.BadRequest(new { error = "Amount cannot be negative." });
+            return ApiErrors.BadRequest(ErrorCodes.NegativeAmount, "Amount cannot be negative.");
         }
 
         if (body.ExpectedReturnOn < body.StartedOn)
         {
-            return Results.BadRequest(new
-            {
-                error = "The return date cannot fall before the hire starts.",
-            });
+            return ApiErrors.BadRequest(ErrorCodes.ReturnBeforeHireStart, "The return date cannot fall before the hire starts.");
         }
 
         if (!await db.Vendors.AnyAsync(v => v.Id == body.VendorId, ct))
         {
-            return Results.BadRequest(new { error = "Unknown vendor." });
+            return ApiErrors.BadRequest(ErrorCodes.UnknownVendor, "Unknown vendor.");
         }
 
         if (!await db.Equipment.AnyAsync(e => e.Id == body.EquipmentId, ct))
         {
-            return Results.BadRequest(new { error = "Unknown equipment." });
+            return ApiErrors.BadRequest(ErrorCodes.UnknownEquipment, "Unknown equipment.");
         }
 
         if (body.ProjectId is { } projectId
             && !await db.Projects.AnyAsync(p => p.Id == projectId, ct))
         {
-            return Results.BadRequest(new { error = "Unknown project." });
+            return ApiErrors.BadRequest(ErrorCodes.UnknownProject, "Unknown project.");
         }
 
         var clash = await db.Rentals.AnyAsync(
             r => r.Code == body.Code && (id == null || r.Id != id), ct);
 
         return clash
-            ? Results.Conflict(new { error = $"Rental code {body.Code} is already in use." })
+            ? ApiErrors.Conflict(ErrorCodes.CodeInUse, $"Rental code {body.Code} is already in use.", ApiErrors.Args(("code", body.Code)))
             : null;
     }
 
