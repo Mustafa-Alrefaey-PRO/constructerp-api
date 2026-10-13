@@ -41,6 +41,7 @@ public static class AuthEndpoints
         group.MapPost("/refresh", Refresh).WithName("RefreshToken").AllowAnonymous();
         group.MapPost("/logout", Logout).WithName("Logout").RequireAuthorization();
         group.MapGet("/me", Me).WithName("Me").RequireAuthorization();
+        group.MapPut("/me", UpdateProfile).WithName("UpdateProfile").RequireAuthorization();
         group.MapPost("/change-password", ChangePassword).WithName("ChangePassword")
             .RequireAuthorization();
 
@@ -272,6 +273,85 @@ public static class AuthEndpoints
 
         return Results.Ok(await IssueAsync(user, db, tokens, ct));
     }
+
+    /// <summary>
+    /// Updates the signed-in user's display name, username and email.
+    /// </summary>
+    /// <remarks>
+    /// Role and organization are not editable here: those decide what a person
+    /// may do and see, so a user must not be able to change their own. The
+    /// response carries a fresh token pair, because the access token holds the
+    /// name and email.
+    /// </remarks>
+    private static async Task<IResult> UpdateProfile(
+        UpdateProfileRequest body,
+        ErpDbContext db,
+        ICurrentUser currentUser,
+        TokenService tokens,
+        CancellationToken ct)
+    {
+        if (currentUser.UserId is not { } userId)
+        {
+            return Results.Unauthorized();
+        }
+
+        var user = await db.Users
+            .Include(u => u.Organization)
+            .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive, ct);
+
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        var displayName = body.DisplayName?.Trim() ?? string.Empty;
+        var userName = UserNames.Normalize(body.UserName);
+        var email = body.Email?.Trim().ToLowerInvariant() ?? string.Empty;
+        var errors = new Dictionary<string, string[]>();
+
+        if (displayName.Length is 0 or > 128)
+        {
+            errors["displayName"] = ["Enter a name of up to 128 characters."];
+        }
+
+        if (!UserNames.IsValid(userName))
+        {
+            errors["userName"] =
+                [$"A username is {UserNames.MinLength}–{UserNames.MaxLength} lowercase letters, digits, dots, underscores or hyphens."];
+        }
+
+        if (email.Length > 256 || !System.Net.Mail.MailAddress.TryCreate(email, out var parsed)
+            || parsed.Address != email)
+        {
+            errors["email"] = ["Enter a valid email address."];
+        }
+
+        if (errors.Count > 0)
+        {
+            return Results.ValidationProblem(errors, title: errors.Values.First()[0]);
+        }
+
+        if (await db.Users.AnyAsync(u => u.Id != userId && u.UserName == userName, ct))
+        {
+            return Taken("userName", "This username is already taken.");
+        }
+
+        if (await db.Users.AnyAsync(u => u.Id != userId && u.Email == email, ct))
+        {
+            return Taken("email", "This email is already used by another account.");
+        }
+
+        user.DisplayName = displayName;
+        user.UserName = userName;
+        user.Email = email;
+
+        return Results.Ok(await IssueAsync(user, db, tokens, ct));
+    }
+
+    private static IResult Taken(string field, string message) => Results.Problem(
+        title: message,
+        statusCode: StatusCodes.Status409Conflict,
+        extensions: new Dictionary<string, object?> { ["field"] = field });
 
     private static async Task<IResult> Me(
         ErpDbContext db, ICurrentUser currentUser, CancellationToken ct)

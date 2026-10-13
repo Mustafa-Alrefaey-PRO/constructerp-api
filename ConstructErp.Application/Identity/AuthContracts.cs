@@ -9,6 +9,8 @@ public sealed record RefreshRequest(string RefreshToken);
 
 public sealed record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
+public sealed record UpdateProfileRequest(string DisplayName, string UserName, string Email);
+
 public sealed record CurrentUserDto(
     Guid Id,
     string UserName,

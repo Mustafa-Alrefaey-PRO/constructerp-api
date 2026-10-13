@@ -258,4 +258,54 @@ public sealed class AuthEndpointTests(ApiFactory factory)
         Assert.Equal(expected, UserNames.FromEmail(email));
         Assert.True(UserNames.IsValid(expected));
     }
+
+    [Fact]
+    public async Task A_user_can_edit_their_own_name_username_and_email_but_not_take_others()
+    {
+        var userName = $"pf{Guid.NewGuid():N}"[..20];
+        await factory.WithDbAsync(async db =>
+        {
+            var user = new AppUser
+            {
+                UserName = userName,
+                Email = $"{userName}@constructerp.local",
+                DisplayName = "Before",
+                Role = UserRole.Driver,
+            };
+            user.PasswordHash = PasswordHashing.Hash(user, "Original1");
+            db.Users.Add(user);
+            await db.SaveChangesAsync();
+        });
+
+        var login = (await (await factory.AnonymousClient().PostAsJsonAsync(
+            "/api/auth/login", new LoginRequest(userName, "Original1"), Json))
+            .Content.ReadFromJsonAsync<AuthResultDto>(Json))!;
+        var client = factory.AnonymousClient();
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", login.AccessToken);
+
+        var renamed = userName + "x";
+        var ok = await client.PutAsJsonAsync("/api/auth/me",
+            new UpdateProfileRequest("  After  ", renamed.ToUpperInvariant(), $"{renamed}@Example.com"), Json);
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        var updated = (await ok.Content.ReadFromJsonAsync<AuthResultDto>(Json))!;
+        Assert.Equal("After", updated.User.DisplayName);
+        Assert.Equal(renamed, updated.User.UserName);
+        Assert.Equal($"{renamed}@example.com", updated.User.Email);
+        // Role is not something a user can change about themselves.
+        Assert.Equal("Driver", updated.User.Role);
+
+        // Someone else's username or email is refused, and bad input is a 400.
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync("/api/auth/me",
+            new UpdateProfileRequest("After", "admin", $"{renamed}@example.com"), Json)).StatusCode);
+        var (adminEmail, _) = factory.Credentials("AdminEmail", "AdminPassword");
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync("/api/auth/me",
+            new UpdateProfileRequest("After", renamed, adminEmail), Json)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync("/api/auth/me",
+            new UpdateProfileRequest("", "a@b", "not-an-email"), Json)).StatusCode);
+
+        // The new username signs in.
+        Assert.Equal(HttpStatusCode.OK, (await factory.AnonymousClient().PostAsJsonAsync(
+            "/api/auth/login", new LoginRequest(renamed, "Original1"), Json)).StatusCode);
+    }
 }
